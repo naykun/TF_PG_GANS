@@ -24,6 +24,9 @@
     <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="layers.py">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="Tensorflow_progressive_growing_of_gans.py" />
   </ItemGroup>
   <ItemGroup>

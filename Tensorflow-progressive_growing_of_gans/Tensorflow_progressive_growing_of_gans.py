@@ -3,6 +3,23 @@ import sys
 import os
 import tensorflow as tf
 
+#################################################################################
+# Keras configs.                                                                #
+# Please refer to https://keras.io/backend .                                    #
+#################################################################################
+
+import keras
+from keras import backend as K
+
+#K.set_floatx('float32')
+#String: 'float16', 'float32', or 'float64'.
+
+#K.set_epsilon(1e-05)
+#float. Sets the value of the fuzz factor used in numeric expressions.
+
+#K.set_image_data_format('channels_first')
+#data_format: string. 'channels_first' or 'channels_last'.
+
 ###################################################################
 # Variables                                                       #
 # When launching project or scripts from Visual Studio,           #
