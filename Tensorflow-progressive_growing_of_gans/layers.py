@@ -10,7 +10,7 @@ import numpy as np
 class ACTVResizeLayer(Layer):
     def __init__(self,output_dim,**kwargs):
         self.output_dim = output_dim
-        super(LODSelectLayer,self).__init__(**kwargs)
+        super(ACTVResizeLayer,self).__init__(**kwargs)
     def build(self,input_shape):
         # TODO(naykun): Create a trainable weight variable for this layer.
         pass
