@@ -6,41 +6,40 @@ import numpy as np
 
 #----------------------------------------------------------------------------
 # Resize activation tensor 'inputs' of shape 'si' to match shape 'so'.
+# TODO(naykun): Test this part.
 class ACTVResizeLayer(Layer):
     def __init__(self,si,so,**kwargs):
         self.si = si
         self.so = so
         super(ACTVResizeLayer,self).__init__(**kwargs)
-    def call(self, inputs, **kwargs):
-        # TODO(naykun): Implementation layer function
-        assert len(si) == len(so) and si[0] == so[0]
+    def call(self, v, **kwargs):
+        assert len(self.si) == len(self.so) and self.si[0] == self.so[0]
 
         # Decrease feature maps.  Attention: channels last
-        if si[-1] > so[-1]:
-            inputs = inputs[...,:so[-1]]
+        if self.si[-1] > self.so[-1]:
+            v = v[...,:so[-1]]
 
-        # Increase feature maps Attention:channels last
-        if si[-1] < so[-1]:
-            z = K.zeros((so[:-1]+(so[-1]-si[-1])),dtype=inputs.dtype)
-            inputs = K.concatenate([inputs,z])
+        # Increase feature maps.  Attention:channels last
+        if self.si[-1] < self.so[-1]:
+            z = K.zeros((self.so[:-1] + (self.so[-1] - self.si[-1])),dtype=v.dtype)
+            v = K.concatenate([v,z])
         
-        # Shrink spatial axis 
-        if len(si) == 4 and (si[1] > so[1] or si[2] > so[2]):
-            assert si[1] % so[1] == 0 and si[2] % so[2] == 0
-            pool_size = (si[1] / so[1],si[2] / so[2])
+        # Shrink spatial axis
+        if len(self.si) == 4 and (self.si[1] > self.so[1] or self.si[2] > self.so[2]):
+            assert self.si[1] % self.so[1] == 0 and self.si[2] % self.so[2] == 0
+            pool_size = (self.si[1] / self.so[1],self.si[2] / self.so[2])
             strides = pool_size
-            outputs = K.pool2d(inputs,pool_size=pool_size,strides=strides,padding='same',data_format='channels_last',pool_mode='avg')
+            v = K.pool2d(v,pool_size=pool_size,strides=strides,padding='same',data_format='channels_last',pool_mode='avg')
 
         #Extend spatial axis
-        for i in range(1,len(si)-1):
-            if si[i] < so[i]:
-                assert so[i]%si[i] == 0
-                outputs = K.repeat_elements(inputs,rep=2,axis=i)
+        for i in range(1,len(self.si) - 1):
+            if self.si[i] < self.so[i]:
+                assert self.so[i] % self.si[i] == 0
+                v = K.repeat_elements(v,rep=2,axis=i)
 
-        return outputs
+        return v
     def compute_output_shape(self, input_shape):
-        # TODO(naykun): Help Keras do automatic shape inference.
-        return so
+        return self.so
 
 
 #----------------------------------------------------------------------------
