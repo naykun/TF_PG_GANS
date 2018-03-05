@@ -109,7 +109,7 @@ class WScaleLayer(Layer):
         if self.bias is not None:
             pattern = ['x'] + ['x'] * (K.ndim(input) - 2)+[0]
             input = input + K.permute_dimensions(self.bias,*pattern)
-        return self.activation(v)
+        return self.activation(input)
     def compute_output_shape(self, input_shape):
         return input_shape
 
@@ -173,33 +173,80 @@ class MinibatchStatConcatLayer(Layer):
 # Generalized dropout layer.  Supports arbitrary subsets of axes and different
 # modes.  Mainly used to inject multiplicative Gaussian noise in the network.
 class GDropLayer(Layer):
-    def __init__(self,output_dim,**kwargs):
-        self.output_dim = output_dim
+    def __init__(self,mode='mul', strength=0.4, axes=(0,3), normalize=False,**kwargs):
         super(GDropLayer,self).__init__(**kwargs)
-    def build(self,input_shape):
-        # TODO(naykun): Create a trainable weight variable for this layer.
-        pass
-    def call(self, inputs, **kwargs):
-        # TODO(naykun): Implementation layer function
-        pass
+        assert mode in ('drop', 'mul', 'prop')
+        #self.random     = K.random_uniform(1, minval=1, maxval=2147462579, dtype=tf.float32, seed=None, name=None)
+        self.mode       = mode
+        self.strength   = strength
+        self.axes       = [axes] if isinstance(axes, int) else list(axes)
+        self.normalize  = normalize # If true, retain overall signal variance.
+        self.gain       = None      # For experimentation.
+    def call(self, input,deterministic=False, **kwargs):
+        if self.gain is not None:
+            input = input * self.gain
+        if deterministic or not self.strength:
+            return input
+
+        in_shape  = self.input_shape
+        in_axes   = range(len(in_shape))
+        in_shape  = [in_shape[axis] if in_shape[axis] is not None else input.shape[axis] for axis in in_axes] # None => Theano expr
+        rnd_shape = [in_shape[axis] for axis in self.axes]
+        broadcast = [self.axes.index(axis) if axis in self.axes else 'x' for axis in in_axes]
+        one       = K.constant(1)
+
+        if self.mode == 'drop':
+            p = one - self.strength
+            rnd = K.random_binomial(tuple(rnd_shape), p=p, dtype=input.dtype) / p
+
+        elif self.mode == 'mul':
+            rnd = (one + self.strength) ** K.random_normal(tuple(rnd_shape), dtype=input.dtype)
+
+        elif self.mode == 'prop':
+            coef = self.strength * K.constant(np.sqrt(np.float32(self.input_shape[1])))
+            rnd = K.random_normal(tuple(rnd_shape), dtype=input.dtype) * coef + one
+
+        else:
+            raise ValueError('Invalid GDropLayer mode', self.mode)
+
+        if self.normalize:
+            rnd = rnd / K.sqrt(K.mean(rnd ** 2, axis=3, keepdims=True))
+        return input * K.permute_dimensions(rnd,broadcast)
     def compute_output_shape(self, input_shape):
-        # TODO(naykun): Help Keras can do automatic shape inference.
-        pass
+        return input_shape
 
 
 #----------------------------------------------------------------------------
 # Layer normalization.  Custom reimplementation based on the paper:
 # https://arxiv.org/abs/1607.06450
 class LayerNormLayer(Layer):
-    def __init__(self,output_dim,**kwargs):
-        self.output_dim = output_dim
+    def __init__(self,incoming,epsilon,**kwargs):
         super(LayerNormLayer,self).__init__(**kwargs)
+        self.incoming = incoming
+        self.epsilon = epsilon
     def build(self,input_shape):
-        # TODO(naykun): Create a trainable weight variable for this layer.
-        pass
-    def call(self, inputs, **kwargs):
-        # TODO(naykun): Implementation layer function
-        pass
+        gain = np.float32(1.0)
+        self.gain = self.add_weight(name='gain',shape = gain.shape,  trainable=True)
+        K.set_value(self.gain,gain)
+        self.bias = None
+        if hasattr(self.incoming, 'bias') and self.incoming.bias is not None: # steal bias
+            bias = K.get_value(self.incoming.bias)
+            self.bias = self.add_param(name = 'bias',shape = bias.shape)
+            K.set_value(self.bias,bias)
+            del self.incoming.params[self.incoming.bias]
+            self.incoming.bias = None
+        self.activation = activations.get('linear')
+        if hasattr(self.incoming, 'activation') and self.incoming.activation is not None: # steal nonlinearity
+            self.activation = self.incoming.activation
+            self.incoming.activation = activations.get('linear')
+    def call(self, input, **kwargs):
+        avg_axes = range(1, len(self.input_shape()))
+        input = input - K.mean(input, axis=avg_axes, keepdims=True) # subtract mean
+        input = input * 1.0/K.sqrt(K.mean(K.square(input), axis=avg_axes, keepdims=True) + self.epsilon) # divide by stdev
+        input = input * self.gain # multiply by gain
+        if self.bias is not None:
+            pattern = ['x'] + ['x'] * (K.ndim(input) - 2)+[0]
+            input = input + K.permute_dimensions(self.bias,*pattern)
+        return self.activation(input)
     def compute_output_shape(self, input_shape):
-        # TODO(naykun): Help Keras can do automatic shape inference.
-        pass
+        return input_shape
