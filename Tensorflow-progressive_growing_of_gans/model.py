@@ -4,7 +4,7 @@ from keras.engine.topology import Layer
 from keras.layers.merge import _Merge
 from keras import activations
 import numpy as np
-
+from layers import *
 
 def Generator(
     num_channels        = 1,
