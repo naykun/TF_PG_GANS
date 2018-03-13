@@ -188,9 +188,10 @@ def Discriminator(
             net = layer(net)
         if use_layernorm:
             layer = LayerNormLayer(layer, epsilon, name=name+'ln')
+            net = layer(net)
         return net
 
-    inputs = Input(shape=[None, num_channels, 2**R, 2**R], name='Dimages')
+    inputs = Input(shape=[None, 2**R, 2**R,num_channels], name='Dimages')
     net = NINBlock(inputs, numf(R-1), lrelu, lrelu_init, name='D%dx' % (R-1))
     for i in range(R-1, 1, -1):
         net = ConvBlock(net, numf(i), 3, lrelu, lrelu_init, 1, name='D%db' % i)
@@ -204,12 +205,31 @@ def Discriminator(
                              (i-1), first_incoming_lod=R-i-1)([net, lod])
     if mbstat_avg is not None:
         net = MinibatchStatConcatLayer(
-            num_kernels=mbdisc_kernels, name='Dmd')(net)
+            num_kernels=mbdisc_kernels, func=globals()[mbstat_func], averaging=mbstat_avg, name='Dstat')(net)
 
-    output_layers = [
-        WS(Dense(1, activation=linear, kernel_initializer=linear_init))(net)]
+    if mbdisc_kernels:
+        net = MinibatchLayer()
+
+    net = ConvBlock(net, numf(1), 3, lrelu, lrelu_init, 1, name='D1b')
+    net = ConvBlock(net, numf(0), 4, lrelu, lrelu_init, 0, name='D1a')
+
+    def DenseBlock(
+        net,
+        size,
+        act,
+        init,
+        name=None):
+        layer = Dense(size, activation=act, kernel_initializer=init,name=name)
+        net = layer(net)
+        if use_wscale:
+            layer = WScaleLayer(layer, name=name+'ws')
+            net = layer(net)
+        return net
+
+    net = DenseBlock(net,1,linear,linear_init,name='Dscores')
+    output_layers = [net]
     if label_size:
-        output_layers += [WS(Dense(label_size, activation=linear,
-                                   kernel_initializer=linear_init, name='Dlabels')(net))]
+        output_layers += [DenseBlock(net,label_size, act=linear,
+                                   init=linear_init, name='Dlabels')]
 
     model = Model(inputs=[inputs], outputs=output_layers)
