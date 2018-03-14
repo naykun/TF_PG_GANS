@@ -10,8 +10,7 @@ from keras.models import Model
 import numpy as np
 from layers import *
 
-linear, linear_init = activations.linear,       initializers.VarianceScaling(
-    scale=1.0, mode='fan_in', distribution='normal')
+linear, linear_init = activations.linear,       initializers.VarianceScaling(scale=1.0, mode='fan_in', distribution='normal')
 relu,   relu_init = activations.relu,         initializers.he_normal()
 lrelu,  lrelu_init = lambda x: K.relu(x, 0.2),  initializers.he_normal()
 
@@ -19,8 +18,7 @@ lrelu,  lrelu_init = lambda x: K.relu(x, 0.2),  initializers.he_normal()
 def vlrelu(x): return K.relu(x, 0.3)
 
 
-def G_convblock(
-        net,
+def G_convblock(net,
         num_filter,
         filter_size,
         actv,
@@ -31,26 +29,25 @@ def G_convblock(
         use_batchnorm=False,
         name=None):
     if pad == 'full':
-        pad = filter_size-1
-    Pad = ZeroPadding2D(pad, name=name+'Pad')
+        pad = filter_size - 1
+    Pad = ZeroPadding2D(pad, name=name + 'Pad')
     net = Pad(net)
     Conv = Conv2D(num_filter, filter_size, padding='same',
                   activation=actv, kernel_initializer=init, name=name)
     net = Conv(net)
     if use_wscale:
-        Wslayer = WScaleLayer(Conv, name=name+'WS')
+        Wslayer = WScaleLayer(Conv, name=name + 'WS')
         net = Wslayer(net)
     if use_batchnorm:
-        Bslayer = BatchNormalization(name=name+'BN')
+        Bslayer = BatchNormalization(name=name + 'BN')
         net = Bslayer(net)
     if use_pixelnorm:
-        Pixnorm = PixelNormLayer(name=name+'PN')
+        Pixnorm = PixelNormLayer(name=name + 'PN')
         net = Pixnorm(net)
     return net
 
 
-def NINblock(
-        net,
+def NINblock(net,
         num_channels,
         actv,
         init,
@@ -60,13 +57,12 @@ def NINblock(
                       activation=actv, kernel_initializer=init, name=name + 'NIN')
     net = NINlayer(net)
     if use_wscale:
-        Wslayer = WScaleLayer(Conv1D, name=name + 'NINWS')
+        Wslayer = WScaleLayer(NINlayer, name=name + 'NINWS')
         net = Wslayer(net)
     return net
 
 
-def Generator(
-        num_channels=1,
+def Generator(num_channels=1,
         resolution=32,
         label_size=0,
         fmap_base=4096,
@@ -81,11 +77,10 @@ def Generator(
         tanh_at_end=None,
         **kwargs):
     R = int(np.log2(resolution))
-    assert resolution == 2**R and resolution >= 4
+    assert resolution == 2 ** R and resolution >= 4
     cur_lod = K.variable(np.float32(0.0), dtype='float32', name='cur_lod')
 
-    def numf(stage): return min(
-        int(fmap_base / (2.0 ** (stage * fmap_decay))), fmap_max)
+    def numf(stage): return min(int(fmap_base / (2.0 ** (stage * fmap_decay))), fmap_max)
     if latent_size is None:
         latent_size = numf(0)
     (act, act_init) = (lrelu, lrelu_init) if use_leakyrelu else (relu, relu_init)
@@ -118,13 +113,12 @@ def Generator(
     if tanh_at_end is not None:
         output = Activation('tanh', name='Gtanh')(output)
         if tanh_at_end != 1.0:
-            output = Lambda(lambda x: x*tanh_at_end, name='Gtanhs')
+            output = Lambda(lambda x: x * tanh_at_end, name='Gtanhs')
 
     model = Model(inputs=inputs, outputs=[output])
 
 
-def Discriminator(
-        num_channels=1,        # Overridden based on dataset.
+def Discriminator(num_channels=1,        # Overridden based on dataset.
         resolution=32,       # Overridden based on dataset.
         label_size=0,        # Overridden based on dataset.
         fmap_base=4096,
@@ -140,22 +134,19 @@ def Discriminator(
 
     epsilon = 0.01
     R = int(np.log2(resolution))
-    assert resolution == 2**R and resolution >= 4
+    assert resolution == 2 ** R and resolution >= 4
     cur_lod = K.variable(np.float(0.0), dtype='float32', name='cur_lod')
-    gdrop_strength = K.variable(
-        np.float(0.0), dtype='float32', name='gdrop_strength')
+    gdrop_strength = K.variable(np.float(0.0), dtype='float32', name='gdrop_strength')
 
-    def numf(stage): return min(
-        int(fmap_base / (2.0 ** (stage * fmap_decay))), fmap_max)
+    def numf(stage): return min(int(fmap_base / (2.0 ** (stage * fmap_decay))), fmap_max)
 
     def GD(incoming):
         return GDropLayer(name='gd', mode='prop', strength=gdrop_strength)(incoming) if use_gdrop else incoming
 
     def WS(layer):
-        return WScaleLayer(layer, name=layer.name+'ws') if use_wscale else layer
+        return WScaleLayer(layer, name=layer.name + 'ws') if use_wscale else layer
 
-    def NINBlock(
-            net,
+    def NINBlock(net,
             num_channels,
             actv,
             init,
@@ -164,15 +155,14 @@ def Discriminator(
                        kernel_initializer=init, pad='same', name=name + 'NIN')
         net = layer(net)
         if use_wscale:
-            layer = WScaleLayer(layer, name=name+'NINWS')
+            layer = WScaleLayer(layer, name=name + 'NINWS')
             net = layer(net)
         return net
 
     def Downscale2DLayer(incoming, scale_factor, **kwargs):
         return AveragePooling2D(pool_size=scale_factor, **kwargs)(incoming)
 
-    def ConvBlock(
-            net,
+    def ConvBlock(net,
             num_filter,
             filter_size,
             actv,
@@ -184,7 +174,7 @@ def Discriminator(
                        kernel_initializer=init, padding=pad, name=name)
         net = layer(net)
         if use_wscale:
-            layer = WScaleLayer(layer, name=name+'ws')
+            layer = WScaleLayer(layer, name=name + 'ws')
             net = layer(net)
         if use_layernorm:
             layer = LayerNormLayer(layer, epsilon, name=name+'ln')
@@ -195,20 +185,19 @@ def Discriminator(
     net = NINBlock(inputs, numf(R-1), lrelu, lrelu_init, name='D%dx' % (R-1))
     for i in range(R-1, 1, -1):
         net = ConvBlock(net, numf(i), 3, lrelu, lrelu_init, 1, name='D%db' % i)
-        net = ConvBlock(net, numf(i-1), 3, lrelu,
+        net = ConvBlock(net, numf(i - 1), 3, lrelu,
                         lrelu_init, 1, name='D%da' % i)
         net = Downscale2DLayer(net, name='D%ddn' % i, scale_factor=2)
-        lod = Downscale2DLayer(inputs, name='D%dxs' %
-                               (i-1), scale_factor=2**(R-i))
-        lod = NINBlock(lod, numf(i-1), lrelu, relu_init, name='D%dx' % (i-1))
-        net = LODSelectLayer(cur_lod, name='D%dlod' %
-                             (i-1), first_incoming_lod=R-i-1)([net, lod])
+        lod = Downscale2DLayer(inputs, name='D%dxs' % (i - 1), scale_factor=2 ** (R - i))
+        lod = NINBlock(lod, numf(i - 1), lrelu, relu_init, name='D%dx' % (i - 1))
+        net = LODSelectLayer(cur_lod, name='D%dlod' % (i - 1), first_incoming_lod=R - i - 1)([net, lod])
+
     if mbstat_avg is not None:
         net = MinibatchStatConcatLayer(
             num_kernels=mbdisc_kernels, func=globals()[mbstat_func], averaging=mbstat_avg, name='Dstat')(net)
 
     if mbdisc_kernels:
-        net = MinibatchLayer()
+        net = MinibatchLayer(mbdisc_kernels,name='Dmd')(net)
 
     net = ConvBlock(net, numf(1), 3, lrelu, lrelu_init, 1, name='D1b')
     net = ConvBlock(net, numf(0), 4, lrelu, lrelu_init, 0, name='D1a')

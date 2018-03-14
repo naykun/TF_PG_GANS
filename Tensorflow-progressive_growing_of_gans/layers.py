@@ -83,10 +83,83 @@ class PixelNormLayer(Layer):
         return input_shape
 
 
+# Copyright (c) 2016 Tim Salimans
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+# Adapted from the original implementation by Tim Salimans.
+# Source: https://github.com/ceobillionaire/improved_gan/blob/master/mnist_svhn_cifar10/nn.py
+
+# We modified it to Keras canonical form
+class MinibatchLayer(Layer):
+    def __init__(self,num_kernels,dim_per_kernel = 5,theta = None,log_weight_scale = None,b = None,init = False,**kwargs):
+        super(MinibatchLayer,self).__init__(**kwargs)
+        self.num_kernels = num_kernels
+        self.dim_per_kernel = dim_per_kernel
+        self.theta_arg = theta
+        self.log_weight_scale_arg =log_weight_scale
+        self.b_arg = b
+        self.init_arg = init
+    def build(self,input_shape):
+        num_inputs = int(np.prod(input_shape[1:]))
+        self.theta = self.add_weight(name = 'theta',shape =  (num_inputs, self.num_kernels, self.dim_per_kernel))
+        if self.theta_arg == None:
+            K.set_value(self.theta,K.random_normal((num_inputs, self.num_kernels, self.dim_per_kernel),0.0,0.05))
+        self.log_weight_scale = self.add_weight(name ='log_weight_scale', shape= (self.num_kernels, self.dim_per_kernel))
+        if self.log_weight_scale_arg == None:
+            K.set_value(self.log_weight_scale,K.constant(0.0,shape = (self.num_kernels, self.dim_per_kernel)))
+        self.kernel = self.theta * K.permute_dimensions((K.exp(self.log_weight_scale)/K.sqrt(K.sum(K.square(self.theta),axis=0))),['x',0,1])
+        self.bias = self.add_weight(name = 'bias',shape = (self.num_kernels,))
+        if self.b_arg == None:
+            K.set_value(self.bias,K.constant(-1.0,shape = (self.num_kernels,)))
+    def call(self,input,**kargs):
+        if K.ndim(input) > 2:
+            # if the input has more than two dimensions, flatten it into a
+            # batch of feature vectors.
+            input = K.flatten(input)
+        actv = K.batch_dot(input,self.kernel,[[1],[0]])
+        abs_dif = (K.sum(K.abs(K.permute_dimensions(actv,[0,1,2,'x'])-K.permute_dimensions(actv,['x',1,2,0])),axis = 2)+
+                   1e6*K.permute_dimensions(K.eye(K.int_shape(input)[0]),[0,'x',1]))
+        if self.init_arg:
+            mean_min_abs_dif = 0.5 * K.mean(K.min(abs_dif, axis=2),axis=0)
+            abs_dif/=K.permute_dimensions(mean_min_abs_dif,['x',0,'x'])
+            self.init_updates = [(self.log_weight_scale, self.log_weight_scale-K.permute_dimensions(K.log(mean_min_abs_dif),[0,'x']))]
+        f = K.sum(K.exp(-abs_dif),axis = 2)
+
+        if self.init_arg:
+            mf = K.mean(f,axis=0)
+            f -= K.permute_dimensions(mf,['x',0])
+            self.init_updates += [(self.bias,-mf)]
+        else:
+            f += K.permute_dimensions(self.bias,['x',0])
+
+        return K.concatenate([input,f],axis = 1)
+    def compute_output_shape(self, input_shape):
+        return (input_shape[0], np.prod(input_shape[1:])+self.num_kernels)
+
+
+
 
 
 #----------------------------------------------------------------------------
 # Applies equalized learning rate to the preceding layer.
+
 class WScaleLayer(Layer):
     def __init__(self,incoming,activation = None,**kwargs):
         self.incoming = incoming
@@ -250,3 +323,4 @@ class LayerNormLayer(Layer):
         return self.activation(input)
     def compute_output_shape(self, input_shape):
         return input_shape
+
