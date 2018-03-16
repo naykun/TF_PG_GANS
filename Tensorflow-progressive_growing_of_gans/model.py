@@ -32,7 +32,7 @@ def G_convblock(net,
         pad = filter_size - 1
     Pad = ZeroPadding2D(pad, name=name + 'Pad')
     net = Pad(net)
-    Conv = Conv2D(num_filter, filter_size, padding='same',
+    Conv = Conv2D(num_filter, filter_size, padding='valid',
                   activation=actv, kernel_initializer=init, name=name)
     net = Conv(net)
     if use_wscale:
@@ -85,14 +85,14 @@ def Generator(num_channels=1,
         latent_size = numf(0)
     (act, act_init) = (lrelu, lrelu_init) if use_leakyrelu else (relu, relu_init)
 
-    inputs = [Input(shape=[None, latent_size], name='Glatents')]
+    inputs = [Input(shape=[latent_size], name='Glatents')]
     net = inputs[-1]
     if normalize_latents:
         net = PixelNormLayer(name='Gnorm')(net)
     if label_size:
-        inputs += [Input(shape=[None, label_size], name='Glabels')]
+        inputs += [Input(shape=[label_size], name='Glabels')]
         net = Concatenate(name='Gina')([net, inputs[-1]])
-    net = Reshape((None, -1, 1, 1), name='G1nb')(net)
+    net = Reshape((1, 1,K.int_shape(net)[1]), name='G1nb')(net)
 
     net = G_convblock(net, numf(1), 4, act, act_init, pad='full', use_wscale=use_wscale,
                       use_batchnorm=use_batchnorm, use_pixelnorm=use_pixelnorm, name='G1a')
@@ -116,6 +116,8 @@ def Generator(num_channels=1,
             output = Lambda(lambda x: x * tanh_at_end, name='Gtanhs')
 
     model = Model(inputs=inputs, outputs=[output])
+    model.cur_lod = cur_lod
+    return model
 
 
 def Discriminator(num_channels=1,        # Overridden based on dataset.
@@ -152,7 +154,7 @@ def Discriminator(num_channels=1,        # Overridden based on dataset.
             init,
             name=None):
         layer = Conv2D(num_channels, 1, activation=actv,
-                       kernel_initializer=init, pad='same', name=name + 'NIN')
+                       kernel_initializer=init, padding='same', name=name + 'NIN')
         net = layer(net)
         if use_wscale:
             layer = WScaleLayer(layer, name=name + 'NINWS')
@@ -170,18 +172,22 @@ def Discriminator(num_channels=1,        # Overridden based on dataset.
             pad,
             name=None):
         net = GD(net)
-        layer = Conv2D(num_filter, filter_size, activation=actv,
-                       kernel_initializer=init, padding=pad, name=name)
-        net = layer(net)
+        if pad == 'full':
+            pad = filter_size - 1
+        Pad = ZeroPadding2D(pad, name=name + 'Pad')
+        net = Pad(net)
+        Conv = Conv2D(num_filter, filter_size, padding='valid',
+                  activation=actv, kernel_initializer=init, name=name)
+        net = Conv(net)
         if use_wscale:
-            layer = WScaleLayer(layer, name=name + 'ws')
+            layer = WScaleLayer(Conv, name=name + 'ws')
             net = layer(net)
         if use_layernorm:
             layer = LayerNormLayer(layer, epsilon, name=name+'ln')
             net = layer(net)
         return net
 
-    inputs = Input(shape=[None, 2**R, 2**R,num_channels], name='Dimages')
+    inputs = Input(shape=[2**R, 2**R,num_channels], name='Dimages')
     net = NINBlock(inputs, numf(R-1), lrelu, lrelu_init, name='D%dx' % (R-1))
     for i in range(R-1, 1, -1):
         net = ConvBlock(net, numf(i), 3, lrelu, lrelu_init, 1, name='D%db' % i)
@@ -193,8 +199,7 @@ def Discriminator(num_channels=1,        # Overridden based on dataset.
         net = LODSelectLayer(cur_lod, name='D%dlod' % (i - 1), first_incoming_lod=R - i - 1)([net, lod])
 
     if mbstat_avg is not None:
-        net = MinibatchStatConcatLayer(
-            num_kernels=mbdisc_kernels, func=globals()[mbstat_func], averaging=mbstat_avg, name='Dstat')(net)
+        net = MinibatchStatConcatLayer(averaging=mbstat_avg, name='Dstat')(net)
 
     if mbdisc_kernels:
         net = MinibatchLayer(mbdisc_kernels,name='Dmd')(net)
@@ -222,3 +227,40 @@ def Discriminator(num_channels=1,        # Overridden based on dataset.
                                    init=linear_init, name='Dlabels')]
 
     model = Model(inputs=[inputs], outputs=output_layers)
+    model.cur_lod = cur_lod
+    return model
+
+
+if __name__ == '__main__':
+    model = Generator(num_channels=3,        # Overridden based on dataset.
+        resolution=1024,       # Overridden based on dataset.
+        label_size=0,        # Overridden based on dataset.
+        fmap_base               = 8192,         # Overall multiplier for the number of feature maps.
+    fmap_decay              = 1.0,          # log2 of feature map reduction when doubling the resolution.
+    fmap_max                = 512,          # Maximum number of feature maps on any resolution.
+    latent_size             = 512,          # Dimensionality of the latent vector.
+    normalize_latents       = True,         # Normalize latent vector to lie on the unit hypersphere?
+    use_wscale              = True,         # Use equalized learning rate?
+    use_pixelnorm           = True,         # Use pixelwise normalization?
+    use_leakyrelu           = True,         # Use leaky ReLU?
+    use_batchnorm           = False,        # Use batch normalization?
+    tanh_at_end             = None,         # Use tanh activation for the last layer? If so, how much to scale the 
+    )
+    print(model.summary())
+    print(model.cur_lod)
+
+    model = Discriminator(num_channels=3,        # Overridden based on dataset.
+        resolution=1024,       # Overridden based on dataset.
+        label_size=0,        # Overridden based on dataset.
+        fmap_base               = 8192,         # Overall multiplier for the number of feature maps.
+    fmap_decay              = 1.0,          # log2 of feature map reduction when doubling the resolution.
+    fmap_max                = 512,          # Maximum number of feature maps on any resolution.
+    mbstat_func             = 'Tstdeps',    # Which minibatch statistic to append as an additional feature map?
+    mbstat_avg              = 'all',        # Which dimensions to average the statistic over?
+    mbdisc_kernels          = None,         # Use minibatch discrimination layer? If so, how many kernels should it have?
+    use_wscale              = True,         # Use equalized learning rate?
+    use_gdrop               = False,        # Include layers to inject multiplicative Gaussian noise?
+    use_layernorm           = False,        # Use layer normalization?
+    )
+    print(model.summary())
+    print(model.cur_lod)

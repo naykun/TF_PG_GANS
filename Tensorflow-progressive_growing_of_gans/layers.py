@@ -3,6 +3,7 @@ from keras.engine.topology import InputSpec
 from keras.engine.topology import Layer
 from keras.layers.merge import _Merge
 from keras import activations
+import tensorflow as tf
 import numpy as np
 
 
@@ -19,7 +20,7 @@ class ACTVResizeLayer(Layer):
 
         # Decrease feature maps.  Attention: channels last
         if self.si[-1] > self.so[-1]:
-            v = v[...,:so[-1]]
+            v = v[...,:self.so[-1]]
 
         # Increase feature maps.  Attention:channels last
         if self.si[-1] < self.so[-1]:
@@ -37,7 +38,7 @@ class ACTVResizeLayer(Layer):
         for i in range(1,len(self.si) - 1):
             if self.si[i] < self.so[i]:
                 assert self.so[i] % self.si[i] == 0
-                v = K.repeat_elements(v,rep=2,axis=i)
+                v = K.repeat_elements(v,rep=int(self.so[i] / self.si[i]),axis=i)
 
         return v
     def compute_output_shape(self, input_shape):
@@ -46,7 +47,7 @@ class ACTVResizeLayer(Layer):
 
 #----------------------------------------------------------------------------
 # Resolution selector for fading in new layers during progressive growing.
-class LODSelectLayer(_Merge):
+class LODSelectLayer(Layer):
     def __init__(self,cur_lod,first_incoming_lod=0,ref_idx=0, min_lod=None, max_lod=None,**kwargs):
         super(LODSelectLayer,self).__init__(**kwargs)
         self.cur_lod = cur_lod
@@ -55,7 +56,7 @@ class LODSelectLayer(_Merge):
         self.min_lod = min_lod
         self.max_lod = max_lod
 
-    def _merge_function(self, inputs):
+    def call(self, inputs):
         self.input_shapes = [K.int_shape(input) for input in inputs]
         v = [ACTVResizeLayer(K.int_shape(input), self.input_shapes[self.ref_idx])(input) for input in inputs]
         lo = np.clip(int(np.floor(self.min_lod - self.first_incoming_lod)), 0, len(v)-1) if self.min_lod is not None else 0
@@ -78,7 +79,7 @@ class PixelNormLayer(Layer):
     def __init__(self,**kwargs):
         super(PixelNormLayer,self).__init__(**kwargs)
     def call(self, inputs, **kwargs):
-        return inputs / K.sqrt(K.mean(v**2, axis=1, keepdims=True) + 1.0e-8)
+        return inputs / K.sqrt(K.mean(inputs**2, axis=1, keepdims=True) + 1.0e-8)
     def compute_output_shape(self, input_shape):
         return input_shape
 
@@ -118,14 +119,14 @@ class MinibatchLayer(Layer):
         self.init_arg = init
     def build(self,input_shape):
         num_inputs = int(np.prod(input_shape[1:]))
-        self.theta = self.add_weight(name = 'theta',shape =  (num_inputs, self.num_kernels, self.dim_per_kernel))
+        self.theta = self.add_weight(name = 'theta',shape =  (num_inputs, self.num_kernels, self.dim_per_kernel),initializer='zeros')
         if self.theta_arg == None:
             K.set_value(self.theta,K.random_normal((num_inputs, self.num_kernels, self.dim_per_kernel),0.0,0.05))
-        self.log_weight_scale = self.add_weight(name ='log_weight_scale', shape= (self.num_kernels, self.dim_per_kernel))
+        self.log_weight_scale = self.add_weight(name ='log_weight_scale', shape= (self.num_kernels, self.dim_per_kernel),initializer='zeros')
         if self.log_weight_scale_arg == None:
             K.set_value(self.log_weight_scale,K.constant(0.0,shape = (self.num_kernels, self.dim_per_kernel)))
-        self.kernel = self.theta * K.permute_dimensions((K.exp(self.log_weight_scale)/K.sqrt(K.sum(K.square(self.theta),axis=0))),['x',0,1])
-        self.bias = self.add_weight(name = 'bias',shape = (self.num_kernels,))
+        self.kernel = self.theta * K.expand_dims(K.permute_dimensions((K.exp(self.log_weight_scale)/K.sqrt(K.sum(K.square(self.theta),axis=0))),[0,1]),0)
+        self.bias = self.add_weight(name = 'bias',shape = (self.num_kernels,),initializer='zeros')
         if self.b_arg == None:
             K.set_value(self.bias,K.constant(-1.0,shape = (self.num_kernels,)))
     def call(self,input,**kargs):
@@ -134,20 +135,20 @@ class MinibatchLayer(Layer):
             # batch of feature vectors.
             input = K.flatten(input)
         actv = K.batch_dot(input,self.kernel,[[1],[0]])
-        abs_dif = (K.sum(K.abs(K.permute_dimensions(actv,[0,1,2,'x'])-K.permute_dimensions(actv,['x',1,2,0])),axis = 2)+
-                   1e6*K.permute_dimensions(K.eye(K.int_shape(input)[0]),[0,'x',1]))
+        abs_dif = (K.sum(K.abs(K.expand_dims(K.permute_dimensions(actv,[0,1,2]))-K.expand_dims(K.permute_dimensions(actv,[1,2,0]),0)),axis = 2)+
+                   1e6*K.expand_dims(K.eye(K.int_shape(input)[0]),1))
         if self.init_arg:
             mean_min_abs_dif = 0.5 * K.mean(K.min(abs_dif, axis=2),axis=0)
-            abs_dif/=K.permute_dimensions(mean_min_abs_dif,['x',0,'x'])
-            self.init_updates = [(self.log_weight_scale, self.log_weight_scale-K.permute_dimensions(K.log(mean_min_abs_dif),[0,'x']))]
+            abs_dif/=K.expand_dims(K.expand_dims(mean_min_abs_dif,0))
+            self.init_updates = [(self.log_weight_scale, self.log_weight_scale-K.expand_dims(K.log(mean_min_abs_dif)))]
         f = K.sum(K.exp(-abs_dif),axis = 2)
 
         if self.init_arg:
             mf = K.mean(f,axis=0)
-            f -= K.permute_dimensions(mf,['x',0])
+            f -= K.expand_dims(mf,0)
             self.init_updates += [(self.bias,-mf)]
         else:
-            f += K.permute_dimensions(self.bias,['x',0])
+            f += K.expand_dims(self.bias,0)
 
         return K.concatenate([input,f],axis = 1)
     def compute_output_shape(self, input_shape):
@@ -169,19 +170,19 @@ class WScaleLayer(Layer):
         kernel = K.get_value(self.incoming.kernel)
         scale = np.sqrt(np.mean(kernel ** 2))
         K.set_value(self.incoming.kernel,kernel/scale)
-        self.scale=self.add_weight(name = 'scale',shape = scale.shape,trainable=False)
+        self.scale=self.add_weight(name = 'scale',shape = scale.shape,trainable=False,initializer='zeros')
         K.set_value(self.scale,scale)
         if  hasattr(self.incoming, 'bias') and self.incoming.bias is not None:
             bias = K.get_value(self.incoming.bias)
-            self.bias=self.add_weight(name = 'bias',shape = bias.shape)
-            del self.incoming.trainable_weights[self.incoming.bias]
+            self.bias=self.add_weight(name = 'bias',shape = bias.shape,initializer='zeros')
+            # del self.incoming.trainable_weights[self.incoming.bias]
             self.incoming.bias = None
         
     def call(self, input, **kwargs):
         input = input * self.scale
         if self.bias is not None:
             pattern = ['x'] + ['x'] * (K.ndim(input) - 2)+[0]
-            input = input + K.permute_dimensions(self.bias,*pattern)
+            input = input + K.expand_dims(K.expand_dims(K.expand_dims(self.bias,0),0),0)
         return self.activation(input)
     def compute_output_shape(self, input_shape):
         return input_shape
@@ -202,10 +203,11 @@ class MinibatchStatConcatLayer(Layer):
         self.adjusted_std = lambda x, **kwargs: K.sqrt(K.mean((x - K.mean(x, **kwargs)) ** 2, **kwargs) + 1e-8)
     def call(self, input, **kwargs):
         s = list(K.int_shape(input))
+        s[0] = tf.shape(input)[0]
         vals = self.adjusted_std(input,axis=0,keepdims=True)                # per activation, over minibatch dim
         if self.averaging == 'all':                                 # average everything --> 1 value per minibatch
             vals = K.mean(vals,keepdims=True)
-            reps = s; reps[-1]=1
+            reps = s; reps[-1]=1;reps[0] = tf.shape(input)[0]
             vals = K.tile(vals,reps)
         elif self.averaging == 'spatial':                           # average spatial locations
             if len(s) == 4:
@@ -232,7 +234,7 @@ class MinibatchStatConcatLayer(Layer):
             vals = K.tile(vals, reps)
         else:
             raise ValueError('Invalid averaging mode', self.averaging)
-        return K.concatenate([input, vals], axis=1)
+        return K.concatenate([input, vals], axis=-1)
     def compute_output_shape(self, input_shape):
         s = list(input_shape)
         if self.averaging == 'all': s[-1] += 1
@@ -299,14 +301,14 @@ class LayerNormLayer(Layer):
         self.epsilon = epsilon
     def build(self,input_shape):
         gain = np.float32(1.0)
-        self.gain = self.add_weight(name='gain',shape = gain.shape,  trainable=True)
+        self.gain = self.add_weight(name='gain',shape = gain.shape,  trainable=True,initializer='zeros')
         K.set_value(self.gain,gain)
         self.bias = None
         if hasattr(self.incoming, 'bias') and self.incoming.bias is not None: # steal bias
             bias = K.get_value(self.incoming.bias)
             self.bias = self.add_param(name = 'bias',shape = bias.shape)
             K.set_value(self.bias,bias)
-            del self.incoming.params[self.incoming.bias]
+            # del self.incoming.params[self.incoming.bias]
             self.incoming.bias = None
         self.activation = activations.get('linear')
         if hasattr(self.incoming, 'activation') and self.incoming.activation is not None: # steal nonlinearity
@@ -319,8 +321,7 @@ class LayerNormLayer(Layer):
         input = input * self.gain # multiply by gain
         if self.bias is not None:
             pattern = ['x'] + ['x'] * (K.ndim(input) - 2)+[0]
-            input = input + K.permute_dimensions(self.bias,*pattern)
+            input = input + K.expand_dims(K.expand_dims(K.expand_dims(self.bias,0),0),0)
         return self.activation(input)
     def compute_output_shape(self, input_shape):
         return input_shape
-
