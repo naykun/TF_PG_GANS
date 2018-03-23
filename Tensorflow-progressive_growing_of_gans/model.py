@@ -228,6 +228,17 @@ def Discriminator(num_channels=1,        # Overridden based on dataset.
 
     model = Model(inputs=[inputs], outputs=output_layers)
     model.cur_lod = cur_lod
+    model.gdrop_strength=gdrop_strength
+    return model
+
+def PG_GAN(G,D,latent_size,label_size):
+    inputs = [Input(shape=[latent_size], name='GANlatents')]
+    if label_size:
+        inputs += [Input(shape=[label_size], name='GANlabels')]
+    fake = G(inputs)
+    GAN_out = D(fake)
+    model = Model(inputs = inputs,outputs = [GAN_out],name = "PG_GAN")
+    model.cur_lod = G.cur_lod
     return model
 
 

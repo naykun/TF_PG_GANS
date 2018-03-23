@@ -30,7 +30,13 @@
     <Compile Include="model.py">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="config.py">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="Tensorflow_progressive_growing_of_gans.py" />
+    <Compile Include="train.py">
+      <SubType>Code</SubType>
+    </Compile>
   </ItemGroup>
   <ItemGroup>
     <Folder Include="data\" />
