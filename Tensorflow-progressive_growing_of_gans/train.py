@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import glob
 from model import *
 from config import *
 from keras.models import load_model,save_model
@@ -43,6 +44,31 @@ def rampdown_linear(epoch, num_epochs, rampdown_length):
     else:
         return 1.0
 
+def create_result_subdir(result_dir, run_desc):
+
+    # Select run ID and create subdir.
+    while True:
+        run_id = 0
+        for fname in glob.glob(os.path.join(result_dir, '*')):
+            try:
+                fbase = os.path.basename(fname)
+                ford = int(fbase[:fbase.find('-')])
+                run_id = max(run_id, ford + 1)
+            except ValueError:
+                pass
+
+        result_subdir = os.path.join(result_dir, '%03d-%s' % (run_id, run_desc))
+        try:
+            os.makedirs(result_subdir)
+            break
+        except OSError:
+            if os.path.isdir(result_subdir):
+                continue
+            raise
+
+    print ("Saving results to", result_subdir)
+    return result_subdir
+
 def random_latents(num_latents, G_input_shape):
     return np.random.randn(num_latents, *G_input_shape[1:]).astype(np.float32)
 
@@ -77,7 +103,7 @@ def train(D_training_repeats      = 1,
     gdrop_exp               = 2.0,
     drange_net              = [-1,1],
     drange_viz              = [-1,1],
-    image_grid_size         = None,
+    image_grid_size         = 5,
     tick_kimg_default       = 50/speed_factor,
     tick_kimg_overrides     = {32:20, 64:10, 128:10, 256:5, 512:2, 1024:1},
     image_snapshot_ticks    = 4,
@@ -96,7 +122,7 @@ def train(D_training_repeats      = 1,
         G = Generator(num_channels=training_set.shape[-1], resolution=training_set.shape[2], label_size=training_set.labels.shape[1], **config.G)
         D = Discriminator(num_channels=training_set.shape[-1], resolution=training_set.shape[2], label_size=training_set.labels.shape[1], **config.D)
         #missing Gs
-    pg_GAN = PG_GAN(G,D,config.G['latent_size'],training_set.labels.shape)    
+    pg_GAN = PG_GAN(G,D,config.G['latent_size'],0)    
     print(G.summary())
     print(D.summary())
     print(pg_GAN.summary())
@@ -108,6 +134,8 @@ def train(D_training_repeats      = 1,
     cur_lod = 0.0
     min_lod, max_lod = -1.0, -2.0
     fake_score_avg = 0.0
+
+    result_subdir = create_result_subdir(config.result_dir, config.run_desc)
 
     G_opt = optimizers.Adam(lr = 0.0,beta_1=adam_beta1,beta_2=adam_beta2,epsilon = adam_epsilon)
     D_opt = optimizers.Adam(lr = 0.0,beta_1 = adam_beta1,beta_2 = adam_beta2,epsilon = adam_epsilon)
@@ -127,6 +155,8 @@ def train(D_training_repeats      = 1,
     #real_label_input = Input((training_set.labels.shape[1]),name = "real_label_input")
     #fake_latent_input = Input((config.G['latent_size']),name = "fake_latent_input")
     #fake_labels_input = Input((training_set.labels.shape[1]),name = "fake_label_input")
+
+    snapshot_fake_latents = random_latents(np.prod(image_grid_size), G.input_shape)
 
     cur_nimg = int(resume_kimg * 1000)
     cur_tick = 0
@@ -180,6 +210,7 @@ def train(D_training_repeats      = 1,
         #        real_images_expr = T.extra_ops.repeat(real_images_expr, 2**min_lod, axis=2)
         #        real_images_expr = T.extra_ops.repeat(real_images_expr, 2**min_lod, axis=3)
         # train D
+        d_loss = None
         for idx in range(D_training_repeats):
             mb_reals, mb_labels = training_set.get_random_minibatch(minibatch_size, lod=cur_lod, shrink_based_on_lod=True, labels=True)
             mb_latents = random_latents(minibatch_size,G.input_shape)
@@ -190,8 +221,8 @@ def train(D_training_repeats      = 1,
 
             mb_fakes = G.predict_on_batch([mb_latents,mb_labels_rnd])
 
-            d_loss_real = D.train_on_batch(mb_reals,np.ones((mb_reals.shape[0],1,1,1)))
-            d_loss_fake = D.train_on_batch(mb_fakes,np.zeros((mb_fakes.shape[0],1,1,1)))
+            d_loss_real = D.train_on_batch(mb_reals, -np.ones((mb_reals.shape[0],1,1,1)))
+            d_loss_fake = D.train_on_batch(mb_fakes, np.ones((mb_fakes.shape[0],1,1,1)))
             d_loss = 0.5 * np.add(d_loss_fake, d_loss_real)
             cur_nimg += minibatch_size
 
@@ -200,8 +231,12 @@ def train(D_training_repeats      = 1,
         mb_latents = random_latents(minibatch_size,G.input_shape)
         mb_labels_rnd = random_labels(minibatch_size,training_set)
 
-        g_loss = pg_GAN.train_on_batch([mb_latents],np.zeros((mb_latents.shape[0],1,1,1)))
+        g_loss = pg_GAN.train_on_batch([mb_latents], -np.ones((mb_latents.shape[0],1,1,1)))
 
+        print ("%d [D loss: %f] [G loss: %f]" % (cur_nimg, 1 - d_loss, 1 - g_loss))
+        #print(cur_nimg)
+        #print(g_loss)
+        #print(d_loss)
         # Fade in D noise if we're close to becoming unstable
         fake_score_cur = np.clip(np.mean(d_loss), 0.0, 1.0)
         fake_score_avg = fake_score_avg * gdrop_beta + fake_score_cur * (1.0 - gdrop_beta)
@@ -222,10 +257,15 @@ def train(D_training_repeats      = 1,
             print ('tick %-5d kimg %-8.1f lod %-5.2f minibatch %-4d time %-12s sec/tick %-9.1f sec/kimg %-6.1f Dgdrop %-8.4f Gloss %-8.4f Dloss %-8.4f Dreal %-8.4f Dfake %-8.4f' % (
                 (cur_tick, cur_nimg / 1000.0, cur_lod, minibatch_size, format_time(cur_time - train_start_time), tick_time, tick_time / tick_kimg, gdrop_strength) + tick_train_avg))
 
+            # Visualize generated images.
+            if cur_tick % image_snapshot_ticks == 0 or cur_nimg >= total_kimg * 1000:
+                snapshot_fake_images = G.predict_on_batch(snapshot_fake_latents)
+                #misc.save_image_grid(snapshot_fake_images, os.path.join(result_subdir, 'fakes%06d.png' % (cur_nimg / 1000)), drange=drange_viz, grid_size=image_grid_size)
+
             if cur_tick % network_snapshot_ticks == 0 or cur_nimg >= total_kimg * 1000:
-                save_GD(G,D,os.path.join(result_subdir, 'network-snapshot-%06d.pkl' % (cur_nimg / 1000)),overwrite = False)
+                save_GD(G,D,os.path.join(result_subdir, 'network-snapshot-%06d' % (cur_nimg / 1000)),overwrite = False)
 
 
-    save_GD(G,D,os.path.join(result_subdir, 'network-final.pkl'))
+    save_GD(G,D,os.path.join(result_subdir, 'network-final'))
     training_set.close()
     print('Done.')
