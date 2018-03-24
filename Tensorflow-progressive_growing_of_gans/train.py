@@ -164,8 +164,8 @@ def train(D_training_repeats      = 1,
 
 
         new_min_lod, new_max_lod = int(np.floor(cur_lod)), int(np.ceil(cur_lod))
-        #if min_lod != new_min_lod or max_lod != new_max_lod:
-        #    min_lod, max_lod = new_min_lod, new_max_lod
+        if min_lod != new_min_lod or max_lod != new_max_lod:
+            min_lod, max_lod = new_min_lod, new_max_lod
 
         #    # Pre-process reals.
         #    real_images_expr = real_images_var
@@ -180,22 +180,25 @@ def train(D_training_repeats      = 1,
         # train D
         for idx in range(D_training_repeats):
             mb_reals, mb_labels = training_set.get_random_minibatch(minibatch_size, lod=cur_lod, shrink_based_on_lod=True, labels=True)
-            mb_latents = random_latents(minibatch_size,(config.G['latent_size']))
+            mb_latents = random_latents(minibatch_size,G.input_shape)
             mb_labels_rnd = random_labels(minibatch_size,training_set)
+            if min_lod > 0: # compensate for shrink_based_on_lod
+                 mb_reals = np.repeat(mb_reals, 2**min_lod, axis=1)
+                 mb_reals = np.repeat(mb_reals, 2**min_lod, axis=2)
 
             mb_fakes = G.predict_on_batch([mb_latents,mb_labels_rnd])
 
-            d_loss_real = D.train_on_batch(mb_reals,np.ones((mb_reals.shape[0],1)))
-            d_loss_fake = D.train_on_batch(mb_fakes,np.zeros((mb_fakes.shape[0],1)))
+            d_loss_real = D.train_on_batch(mb_reals,np.ones((mb_reals.shape[0],1,1,1)))
+            d_loss_fake = D.train_on_batch(mb_fakes,np.zeros((mb_fakes.shape[0],1,1,1)))
             d_loss = 0.5 * np.add(d_loss_fake, d_loss_real)
             cur_nimg += minibatch_size
 
         #train G
 
-        mb_latents = random_latents(minibatch_size,(config.G['latent_size']))
+        mb_latents = random_latents(minibatch_size,G.input_shape)
         mb_labels_rnd = random_labels(minibatch_size,training_set)
 
-        g_loss = pg_GAN.train_on_batch([mb_latents,mb_labels],np.zeros((mb_latents.shape[0],1)))
+        g_loss = pg_GAN.train_on_batch([mb_latents],np.zeros((mb_latents.shape[0],1,1,1)))
 
         # Fade in D noise if we're close to becoming unstable
         fake_score_cur = np.clip(np.mean(d_loss), 0.0, 1.0)

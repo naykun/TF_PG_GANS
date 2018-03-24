@@ -60,7 +60,7 @@ class Dataset:
         self.max_gb_to_load_right_away = max_gb_to_load_right_away
         min_order_size = self.prefetch_images * 4
         order_size = self.shape[0] * ((min_order_size - 1) / self.shape[0] + 1)
-        self.order = np.arange(order_size) % self.shape[0]
+        self.order = (np.arange(order_size) % self.shape[0]).astype(int)
         if shuffle:
             np.random.shuffle(self.order)
             self.reshuffle_window = min(self.order.size / 2, self.order.size - self.prefetch_images * 2 - 1)
@@ -150,12 +150,12 @@ class Dataset:
 
         # Look up labels.
 
-        print("****************************************")
-        print("原有shape：",data.shape)
+        #print("****************************************")
+        #print("原有shape：",data.shape)
         #测试，直接交换两个维度，看效果
         data=np.swapaxes(data,1,2)
         data=np.swapaxes(data,2,3)
-        print("变换后shape：",data.shape)
+        #print("变换后shape：",data.shape)
 
         
         if labels:
@@ -185,7 +185,9 @@ class WorkerThread(threading.Thread):
 
     def run(self):
         while not self.exit_requested:
-            data = self.dataset[self.order[self.cur_pos]]
+            #print(self.cur_pos)
+            #print(self.order[self.cur_pos])
+            data = self.dataset[int(self.order[int(self.cur_pos)])]
             self.queue.put(data)
             self.cur_pos = (self.cur_pos + 1) % self.order.size
 
