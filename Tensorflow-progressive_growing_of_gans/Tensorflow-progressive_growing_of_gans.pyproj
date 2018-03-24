@@ -24,6 +24,7 @@
     <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="dataset.py" />
     <Compile Include="layers.py">
       <SubType>Code</SubType>
     </Compile>
@@ -37,6 +38,7 @@
     <Compile Include="train.py">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="train_debug.py" />
   </ItemGroup>
   <ItemGroup>
     <Folder Include="data\" />

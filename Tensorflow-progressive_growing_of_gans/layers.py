@@ -176,7 +176,7 @@ class WScaleLayer(Layer):
             bias = K.get_value(self.incoming.bias)
             self.bias=self.add_weight(name = 'bias',shape = bias.shape,initializer='zeros')
             # del self.incoming.trainable_weights[self.incoming.bias]
-            self.incoming.bias = None
+            # self.incoming.bias = None
         
     def call(self, input, **kwargs):
         input = input * self.scale
@@ -309,7 +309,7 @@ class LayerNormLayer(Layer):
             self.bias = self.add_param(name = 'bias',shape = bias.shape)
             K.set_value(self.bias,bias)
             # del self.incoming.params[self.incoming.bias]
-            self.incoming.bias = None
+            # self.incoming.bias = None
         self.activation = activations.get('linear')
         if hasattr(self.incoming, 'activation') and self.incoming.activation is not None: # steal nonlinearity
             self.activation = self.incoming.activation

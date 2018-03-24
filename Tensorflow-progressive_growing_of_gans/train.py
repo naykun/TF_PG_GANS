@@ -1,4 +1,6 @@
 import os
+import sys
+import time
 from model import *
 from config import *
 from keras.models import load_model,save_model
@@ -27,6 +29,13 @@ def rampup(epoch, rampup_length):
         return math.exp(-p*p*5.0)
     else:
         return 1.0
+
+def format_time(seconds):
+    s = int(np.round(seconds))
+    if s < 60:         return '%ds'                % (s)
+    elif s < 60*60:    return '%dm %02ds'          % (s / 60, s % 60)
+    elif s < 24*60*60: return '%dh %02dm %02ds'    % (s / (60*60), (s / 60) % 60, s % 60)
+    else:              return '%dd %dh %02dm'      % (s / (24*60*60), (s / (60*60)) % 24, (s / 60) % 60)
 
 def rampdown_linear(epoch, num_epochs, rampdown_length):
     if epoch >= num_epochs - rampdown_length:
@@ -112,10 +121,10 @@ def train(D_training_repeats      = 1,
     D.trainable = True
     D.compile(D_opt,loss=D_loss_func)
 
-    real_image_input = Input((training_set.shape[2],training_set.shape[2],training_set.shape[-1]),name = "real_image_input")
-    real_label_input = Input((training_set.labels.shape[1]),name = "real_label_input")
-    fake_latent_input = Input((config.G['latent_size']),name = "fake_latent_input")
-    fake_labels_input = Input((training_set.labels.shape[1]),name = "fake_label_input")
+    #real_image_input = Input((training_set.shape[2],training_set.shape[2],training_set.shape[-1]),name = "real_image_input")
+    #real_label_input = Input((training_set.labels.shape[1]),name = "real_label_input")
+    #fake_latent_input = Input((config.G['latent_size']),name = "fake_latent_input")
+    #fake_labels_input = Input((training_set.labels.shape[1]),name = "fake_label_input")
 
     cur_nimg = int(resume_kimg * 1000)
     cur_tick = 0
@@ -143,8 +152,8 @@ def train(D_training_repeats      = 1,
 
 
         # Update network config.
-        lrate_coef = misc.rampup(cur_nimg / 1000.0, rampup_kimg)
-        lrate_coef *= misc.rampdown_linear(cur_nimg / 1000.0, total_kimg, rampdown_kimg)
+        lrate_coef = rampup(cur_nimg / 1000.0, rampup_kimg)
+        lrate_coef *= rampdown_linear(cur_nimg / 1000.0, total_kimg, rampdown_kimg)
         #G_lrate.set_value(np.float32(lrate_coef * G_learning_rate_max))
         K.set_value(G.optimizer.lr, np.float32(lrate_coef * G_learning_rate_max))
         K.set_value(pg_GAN.optimizer.lr, np.float32(lrate_coef * G_learning_rate_max))
@@ -155,19 +164,19 @@ def train(D_training_repeats      = 1,
 
 
         new_min_lod, new_max_lod = int(np.floor(cur_lod)), int(np.ceil(cur_lod))
-        if min_lod != new_min_lod or max_lod != new_max_lod:
-            min_lod, max_lod = new_min_lod, new_max_lod
+        #if min_lod != new_min_lod or max_lod != new_max_lod:
+        #    min_lod, max_lod = new_min_lod, new_max_lod
 
-            # Pre-process reals.
-            real_images_expr = real_images_var
-            if dequantize_reals:
-                epsilon_noise = K.random_uniform_variable(real_image_input.shape(), low=-0.5, high=0.5, dtype='float32', seed=np.random.randint(1, 2147462579))
-                epsilon_noise = rnd.uniform(size=real_images_expr.shape, low=-0.5, high=0.5, dtype='float32')
-                real_images_expr = T.cast(real_images_expr, 'float32') + epsilon_noise # match original implementation of Improved Wasserstein
-            real_images_expr = misc.adjust_dynamic_range(real_images_expr, drange_orig, drange_net)
-            if min_lod > 0: # compensate for shrink_based_on_lod
-                real_images_expr = T.extra_ops.repeat(real_images_expr, 2**min_lod, axis=2)
-                real_images_expr = T.extra_ops.repeat(real_images_expr, 2**min_lod, axis=3)
+        #    # Pre-process reals.
+        #    real_images_expr = real_images_var
+        #    if dequantize_reals:
+        #        epsilon_noise = K.random_uniform_variable(real_image_input.shape(), low=-0.5, high=0.5, dtype='float32', seed=np.random.randint(1, 2147462579))
+        #        epsilon_noise = rnd.uniform(size=real_images_expr.shape, low=-0.5, high=0.5, dtype='float32')
+        #        real_images_expr = T.cast(real_images_expr, 'float32') + epsilon_noise # match original implementation of Improved Wasserstein
+        #    real_images_expr = misc.adjust_dynamic_range(real_images_expr, drange_orig, drange_net)
+        #    if min_lod > 0: # compensate for shrink_based_on_lod
+        #        real_images_expr = T.extra_ops.repeat(real_images_expr, 2**min_lod, axis=2)
+        #        real_images_expr = T.extra_ops.repeat(real_images_expr, 2**min_lod, axis=3)
         # train D
         for idx in range(D_training_repeats):
             mb_reals, mb_labels = training_set.get_random_minibatch(minibatch_size, lod=cur_lod, shrink_based_on_lod=True, labels=True)
@@ -206,7 +215,7 @@ def train(D_training_repeats      = 1,
 
             # Print progress.
             print ('tick %-5d kimg %-8.1f lod %-5.2f minibatch %-4d time %-12s sec/tick %-9.1f sec/kimg %-6.1f Dgdrop %-8.4f Gloss %-8.4f Dloss %-8.4f Dreal %-8.4f Dfake %-8.4f' % (
-                (cur_tick, cur_nimg / 1000.0, cur_lod, minibatch_size, misc.format_time(cur_time - train_start_time), tick_time, tick_time / tick_kimg, gdrop_strength) + tick_train_avg))
+                (cur_tick, cur_nimg / 1000.0, cur_lod, minibatch_size, format_time(cur_time - train_start_time), tick_time, tick_time / tick_kimg, gdrop_strength) + tick_train_avg))
 
             if cur_tick % network_snapshot_ticks == 0 or cur_nimg >= total_kimg * 1000:
                 save_GD(G,D,os.path.join(result_subdir, 'network-snapshot-%06d.pkl' % (cur_nimg / 1000)),overwrite = False)
