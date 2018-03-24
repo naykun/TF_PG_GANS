@@ -18,16 +18,17 @@ lrelu,  lrelu_init = lambda x: K.relu(x, 0.2),  initializers.he_normal()
 def vlrelu(x): return K.relu(x, 0.3)
 
 
-def G_convblock(net,
-        num_filter,
-        filter_size,
-        actv,
-        init,
-        pad='same',
-        use_wscale=True,
-        use_pixelnorm=True,
-        use_batchnorm=False,
-        name=None):
+def G_convblock(
+    net,
+    num_filter,
+    filter_size,
+    actv,
+    init,
+    pad='same',
+    use_wscale=True,
+    use_pixelnorm=True,
+    use_batchnorm=False,
+    name=None):
     if pad == 'full':
         pad = filter_size - 1
     Pad = ZeroPadding2D(pad, name=name + 'Pad')
@@ -47,12 +48,13 @@ def G_convblock(net,
     return net
 
 
-def NINblock(net,
-        num_channels,
-        actv,
-        init,
-        use_wscale=True,
-        name=None):
+def NINblock(
+    net,
+    num_channels,
+    actv,
+    init,
+    use_wscale=True,
+    name=None):
     NINlayer = Conv2D(num_channels, 1, padding='same',
                       activation=actv, kernel_initializer=init, name=name + 'NIN')
     net = NINlayer(net)
@@ -62,20 +64,21 @@ def NINblock(net,
     return net
 
 
-def Generator(num_channels=1,
-        resolution=32,
-        label_size=0,
-        fmap_base=4096,
-        fmap_decay=1.0,
-        fmap_max=256,
-        latent_size=None,
-        normalize_latents=True,
-        use_wscale=True,
-        use_pixelnorm=True,
-        use_leakyrelu=True,
-        use_batchnorm=False,
-        tanh_at_end=None,
-        **kwargs):
+def Generator(
+    num_channels        =1,
+    resolution          =32,
+    label_size          =0,
+    fmap_base           =4096,
+    fmap_decay          =1.0,
+    fmap_max            =256,
+    latent_size         =None,
+    normalize_latents   =True,
+    use_wscale          =True,
+    use_pixelnorm       =True,
+    use_leakyrelu       =True,
+    use_batchnorm       =False,
+    tanh_at_end         =None,
+    **kwargs):
     R = int(np.log2(resolution))
     assert resolution == 2 ** R and resolution >= 4
     cur_lod = K.variable(np.float32(0.0), dtype='float32', name='cur_lod')
@@ -87,11 +90,14 @@ def Generator(num_channels=1,
 
     inputs = [Input(shape=[latent_size], name='Glatents')]
     net = inputs[-1]
+
+    #print("DEEEEEEEE")
+
     if normalize_latents:
         net = PixelNormLayer(name='Gnorm')(net)
     if label_size:
         inputs += [Input(shape=[label_size], name='Glabels')]
-        net = Concatenate(name='Gina')([net, inputs[-1]])
+        net = Concatenate(name='G1na')([net, inputs[-1]])
     net = Reshape((1, 1,K.int_shape(net)[1]), name='G1nb')(net)
 
     net = G_convblock(net, numf(1), 4, act, act_init, pad='full', use_wscale=use_wscale,
@@ -120,19 +126,20 @@ def Generator(num_channels=1,
     return model
 
 
-def Discriminator(num_channels=1,        # Overridden based on dataset.
-        resolution=32,       # Overridden based on dataset.
-        label_size=0,        # Overridden based on dataset.
-        fmap_base=4096,
-        fmap_decay=1.0,
-        fmap_max=256,
-        mbstat_func='Tstdeps',
-        mbstat_avg='all',
-        mbdisc_kernels=None,
-        use_wscale=True,
-        use_gdrop=True,
-        use_layernorm=False,
-        **kwargs):
+def Discriminator(
+    num_channels=1,        # Overridden based on dataset.
+    resolution=32,       # Overridden based on dataset.
+    label_size=0,        # Overridden based on dataset.
+    fmap_base=4096,
+    fmap_decay=1.0,
+    fmap_max=256,
+    mbstat_func='Tstdeps',
+    mbstat_avg='all',
+    mbdisc_kernels=None,
+    use_wscale=True,
+    use_gdrop=True,
+    use_layernorm=False,
+    **kwargs):
 
     epsilon = 0.01
     R = int(np.log2(resolution))
@@ -232,46 +239,67 @@ def Discriminator(num_channels=1,        # Overridden based on dataset.
     return model
 
 def PG_GAN(G,D,latent_size,label_size):
+
+
+    print("Latent size:")
+    print(latent_size)
+
+
+    print("Label size:")
+    print(label_size)
+
     inputs = [Input(shape=[latent_size], name='GANlatents')]
     if label_size:
         inputs += [Input(shape=[label_size], name='GANlabels')]
+    print(inputs)
+
+    print(G)
+    print(G.summary())
+    print(D)
+
+    #此处 fake 一句无法执行
     fake = G(inputs)
     GAN_out = D(fake)
+
+
     model = Model(inputs = inputs,outputs = [GAN_out],name = "PG_GAN")
     model.cur_lod = G.cur_lod
+    
     return model
 
 
 if __name__ == '__main__':
-    model = Generator(num_channels=3,        # Overridden based on dataset.
-        resolution=1024,       # Overridden based on dataset.
-        label_size=0,        # Overridden based on dataset.
-        fmap_base               = 8192,         # Overall multiplier for the number of feature maps.
-    fmap_decay              = 1.0,          # log2 of feature map reduction when doubling the resolution.
-    fmap_max                = 512,          # Maximum number of feature maps on any resolution.
-    latent_size             = 512,          # Dimensionality of the latent vector.
-    normalize_latents       = True,         # Normalize latent vector to lie on the unit hypersphere?
-    use_wscale              = True,         # Use equalized learning rate?
-    use_pixelnorm           = True,         # Use pixelwise normalization?
-    use_leakyrelu           = True,         # Use leaky ReLU?
-    use_batchnorm           = False,        # Use batch normalization?
-    tanh_at_end             = None,         # Use tanh activation for the last layer? If so, how much to scale the 
+    model = Generator(
+        num_channels            = 3,         # Overridden based on dataset.
+        resolution              = 1024,      # Overridden based on dataset.
+        label_size              = 0,         # Overridden based on dataset.
+        fmap_base               = 8192,     # Overall multiplier for the number of feature maps.
+        fmap_decay              = 1.0,      # log2 of feature map reduction when doubling the resolution.
+        fmap_max                = 512,      # Maximum number of feature maps on any resolution.
+        latent_size             = 512,      # Dimensionality of the latent vector.
+        normalize_latents       = True,     # Normalize latent vector to lie on the unit hypersphere?
+        use_wscale              = True,     # Use equalized learning rate?
+        use_pixelnorm           = True,     # Use pixelwise normalization?
+        use_leakyrelu           = True,     # Use leaky ReLU?
+        use_batchnorm           = False,    # Use batch normalization?
+        tanh_at_end             = None,     # Use tanh activation for the last layer? If so, how much to scale the 
     )
     print(model.summary())
     print(model.cur_lod)
 
-    model = Discriminator(num_channels=3,        # Overridden based on dataset.
-        resolution=1024,       # Overridden based on dataset.
-        label_size=0,        # Overridden based on dataset.
+    model = Discriminator(
+        num_channels            = 3,             # Overridden based on dataset.
+        resolution              = 1024,          # Overridden based on dataset.
+        label_size              = 0,             # Overridden based on dataset.
         fmap_base               = 8192,         # Overall multiplier for the number of feature maps.
-    fmap_decay              = 1.0,          # log2 of feature map reduction when doubling the resolution.
-    fmap_max                = 512,          # Maximum number of feature maps on any resolution.
-    mbstat_func             = 'Tstdeps',    # Which minibatch statistic to append as an additional feature map?
-    mbstat_avg              = 'all',        # Which dimensions to average the statistic over?
-    mbdisc_kernels          = None,         # Use minibatch discrimination layer? If so, how many kernels should it have?
-    use_wscale              = True,         # Use equalized learning rate?
-    use_gdrop               = False,        # Include layers to inject multiplicative Gaussian noise?
-    use_layernorm           = False,        # Use layer normalization?
+        fmap_decay              = 1.0,          # log2 of feature map reduction when doubling the resolution.
+        fmap_max                = 512,          # Maximum number of feature maps on any resolution.
+        mbstat_func             = 'Tstdeps',    # Which minibatch statistic to append as an additional feature map?
+        mbstat_avg              = 'all',        # Which dimensions to average the statistic over?
+        mbdisc_kernels          = None,         # Use minibatch discrimination layer? If so, how many kernels should it have?
+        use_wscale              = True,         # Use equalized learning rate?
+        use_gdrop               = False,        # Include layers to inject multiplicative Gaussian noise?
+        use_layernorm           = False,        # Use layer normalization? 
     )
     print(model.summary())
     print(model.cur_lod)

@@ -6,6 +6,7 @@ from keras.layers import Input
 from keras import optimizers
 
 import dataset
+import config
 
 def load_GD(path,compile = False):
     G_path = os.path.join(path,'Generator.h5')
@@ -44,7 +45,33 @@ def wasserstein_loss(self, y_true, y_pred):
         return K.mean(y_true * y_pred)
 
 
-def train(D_training_repeats      = 1,
+def load_dataset(dataset_spec=None, verbose=True, **spec_overrides):
+    if verbose: print('Loading dataset...')
+    if dataset_spec is None: dataset_spec = config.dataset
+    dataset_spec = dict(dataset_spec) # take a copy of the dict before modifying it
+    dataset_spec.update(spec_overrides)
+    dataset_spec['h5_path'] = os.path.join(config.data_dir, dataset_spec['h5_path'])
+    if 'label_path' in dataset_spec: dataset_spec['label_path'] = os.path.join(config.data_dir, dataset_spec['label_path'])
+    training_set = dataset.Dataset(**dataset_spec)
+    #
+
+    #print("****************************************")
+    #print("原有shape：",training_set.shape)
+    #测试，直接交换两个维度，看效果
+    #training_set=np.swapaxes(training_set,1,2)
+    #training_set=np.swapaxes(training_set,2,3)
+    #print("变换后shape：",training_set.shape)
+    
+    #
+    if verbose: print('Dataset shape =', np.int32(training_set.shape).tolist())
+    drange_orig = training_set.get_dynamic_range()
+    if verbose: print('Dynamic range =', drange_orig)
+    return training_set, drange_orig
+
+
+def train_gan(
+    separate_funcs          = False,
+    D_training_repeats      = 1,
     G_learning_rate_max     = 0.0010,
     D_learning_rate_max     = 0.0010,
     G_smoothing             = 0.999,
@@ -72,24 +99,33 @@ def train(D_training_repeats      = 1,
     image_snapshot_ticks    = 4,
     network_snapshot_ticks  = 40,
     image_grid_type         = 'default',
-    resume_network      = None,
+    resume_network          = None,
     resume_kimg             = 0.0,
     resume_time             = 0.0):
 
     training_set, drange_orig = load_dataset()
 
+   
+    #这部分，train_set.shape 经过了改动
     if resume_network:
         print("Resuming form"+resume_network)
         G,D = resume(os.path.join((config.result_dir,resume_network)))
     else:
-        G = Generator(num_channels=training_set.shape[-1], resolution=training_set.shape[2], label_size=training_set.labels.shape[1], **config.G)
-        D = Discriminator(num_channels=training_set.shape[-1], resolution=training_set.shape[2], label_size=training_set.labels.shape[1], **config.D)
+        #channel last
+        print("Creating new G & D network...")
+        G = Generator(num_channels=training_set.shape[1], resolution=training_set.shape[2], label_size=training_set.labels.shape[1], **config.G)
+        D = Discriminator(num_channels=training_set.shape[1], resolution=training_set.shape[2], label_size=training_set.labels.shape[1], **config.D)
         #missing Gs
-    pg_GAN = PG_GAN(G,D,config.G['latent_size'],training_set.labels.shape)    
+    
+    print("Debug"*20)
+
+    pg_GAN = PG_GAN(G,D,config.G['latent_size'],training_set.labels.shape[0])    
+    
+    print("Debug"*20)
+
     print(G.summary())
     print(D.summary())
     print(pg_GAN.summary())
-
 
     # Misc init.
     resolution_log2 = int(np.round(np.log2(G.output_shape[2])))
@@ -102,6 +138,9 @@ def train(D_training_repeats      = 1,
     D_opt = optimizers.Adam(lr = 0.0,beta_1 = adam_beta1,beta_2 = adam_beta2,epsilon = adam_epsilon)
     # GAN_opt = optimizers.Adam(lr = 0.0,beta_1 = 0.0,beta_2 = 0.99)
     
+
+
+
     if config.loss['type']=='wass':
         G_loss_func = wasserstein_loss
         D_loss_func = wasserstein_loss
@@ -215,3 +254,15 @@ def train(D_training_repeats      = 1,
     save_GD(G,D,os.path.join(result_subdir, 'network-final.pkl'))
     training_set.close()
     print('Done.')
+
+
+    
+
+if __name__ == '__main__':
+    #指定随机种子
+    np.random.seed(config.random_seed)
+    func_params = config.train
+    #config.train 为学习率等参数的设置字典
+    func_name = func_params['func']
+    del func_params['func']
+    globals()[func_name](**func_params)
