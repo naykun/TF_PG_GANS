@@ -53,6 +53,8 @@ def wasserstein_loss(self, y_true, y_pred):
         return K.mean(y_true * y_pred)
 
 
+speed_factor = 10
+
 def train(D_training_repeats      = 1,
     G_learning_rate_max     = 0.0010,
     D_learning_rate_max     = 0.0010,
@@ -62,12 +64,12 @@ def train(D_training_repeats      = 1,
     adam_epsilon            = 1e-8,
     minibatch_default       = 16,
     minibatch_overrides     = {},
-    rampup_kimg             = 40,
+    rampup_kimg             = 40/speed_factor,
     rampdown_kimg           = 0,
     lod_initial_resolution  = 4,
-    lod_training_kimg       = 400,
-    lod_transition_kimg     = 400,
-    total_kimg              = 10000,
+    lod_training_kimg       = 400/speed_factor,
+    lod_transition_kimg     = 400/speed_factor,
+    total_kimg              = 10000/speed_factor,
     dequantize_reals        = False,
     gdrop_beta              = 0.9,
     gdrop_lim               = 0.5,
@@ -76,7 +78,7 @@ def train(D_training_repeats      = 1,
     drange_net              = [-1,1],
     drange_viz              = [-1,1],
     image_grid_size         = None,
-    tick_kimg_default       = 50,
+    tick_kimg_default       = 50/speed_factor,
     tick_kimg_overrides     = {32:20, 64:10, 128:10, 256:5, 512:2, 1024:1},
     image_snapshot_ticks    = 4,
     network_snapshot_ticks  = 40,
@@ -139,7 +141,7 @@ def train(D_training_repeats      = 1,
         # Calculate current LOD.
         cur_lod = initial_lod
         if lod_training_kimg or lod_transition_kimg:
-            tlod = (cur_nimg / 1000.0) / (lod_training_kimg + lod_transition_kimg)
+            tlod = (cur_nimg / (1000.0/speed_factor)) / (lod_training_kimg + lod_transition_kimg)
             cur_lod -= np.floor(tlod)
             if lod_transition_kimg:
                 cur_lod -= max(1.0 + (np.fmod(tlod, 1.0) - 1.0) * (lod_training_kimg + lod_transition_kimg) / lod_transition_kimg, 0.0)
