@@ -36,10 +36,12 @@ class HDF5Exporter:
             bytes_per_item = c * (r ** 2)
             chunk_size = int(np.ceil(128.0 / bytes_per_item))
             buffer_size = int(np.ceil(512.0 * np.exp2(20) / bytes_per_item))
-            lod = self.h5_file.create_dataset('data%dx%d' % (r,r), shape=(0,c,r,r), dtype=np.uint8,
-                maxshape=(None,c,r,r), chunks=(chunk_size,c,r,r), compression='gzip', compression_opts=4)
+            #change to channel last
+            lod = self.h5_file.create_dataset('data%dx%d' % (r,r), shape=(0,r,r,c), dtype=np.uint8,
+                maxshape=(None,r,r,c), chunks=(chunk_size,r,r,c), compression='gzip', compression_opts=4)
+            
             self.h5_lods.append(lod)
-            self.buffers.append(np.zeros((buffer_size,c,r,r), dtype=np.uint8))
+            self.buffers.append(np.zeros((buffer_size,r,r,c), dtype=np.uint8))
             self.buffer_sizes.append(0)
 
     def close(self):
@@ -80,7 +82,7 @@ class HDF5Exporter:
             while ofs < quant.shape[0]:
                 num = min(quant.shape[0] - ofs, self.buffers[lod].shape[0] - self.buffer_sizes[lod])
                 
-                print("self.buffers.shape:",self.buffers[0].shape)
+                #print("self.buffers.shape:",self.buffers[0].shape)
 
                 self.buffers[lod][ self.buffer_sizes[lod] : self.buffer_sizes[lod] + num] = quant[ofs : ofs + num]
                 self.buffer_sizes[lod] += num

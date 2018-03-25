@@ -135,7 +135,7 @@ def train_gan(
     gdrop_exp               = 2.0,
     drange_net              = [-1,1],
     drange_viz              = [-1,1],
-    image_grid_size         = None,
+    image_grid_size         = 5,
     tick_kimg_default       = 50/speed_factor,
     tick_kimg_overrides     = {32:20, 64:10, 128:10, 256:5, 512:2, 1024:1},
     image_snapshot_ticks    = 1,
@@ -155,8 +155,8 @@ def train_gan(
     else:
         #channel last
         print("Creating new G & D network...")
-        G = Generator(num_channels=training_set.shape[1], resolution=training_set.shape[2], label_size=training_set.labels.shape[1], **config.G)
-        D = Discriminator(num_channels=training_set.shape[1], resolution=training_set.shape[2], label_size=training_set.labels.shape[1], **config.D)
+        G = Generator(num_channels=training_set.shape[3], resolution=training_set.shape[2], label_size=training_set.labels.shape[1], **config.G)
+        D = Discriminator(num_channels=training_set.shape[3], resolution=training_set.shape[2], label_size=training_set.labels.shape[1], **config.D)
         #missing Gs
     
     #print("Debug"*20)
@@ -170,7 +170,7 @@ def train_gan(
     print(pg_GAN.summary())
 
     # Misc init.
-    resolution_log2 = int(np.round(np.log2(G.output_shape[2])))
+    resolution_log2 = int(np.round(np.log2(G.output_shape[1])))
     initial_lod = max(resolution_log2 - int(np.round(np.log2(lod_initial_resolution))), 0)
     cur_lod = 0.0
     min_lod, max_lod = -1.0, -2.0
@@ -272,7 +272,10 @@ def train_gan(
         # train D
         d_loss = None
         for idx in range(D_training_repeats):
-            mb_reals, mb_labels = training_set.get_random_minibatch(minibatch_size, lod=cur_lod, shrink_based_on_lod=True, labels=True)
+            #mb_reals, mb_labels = training_set.get_random_minibatch(minibatch_size, lod=cur_lod, shrink_based_on_lod=True, labels=True)
+            
+            mb_reals, mb_labels = training_set.get_random_minibatch_channel_last(minibatch_size, lod=cur_lod, shrink_based_on_lod=True, labels=True)
+            
             mb_latents = random_latents(minibatch_size,G.input_shape)
             mb_labels_rnd = random_labels(minibatch_size,training_set)
             if min_lod > 0: # compensate for shrink_based_on_lod
@@ -327,7 +330,7 @@ def train_gan(
                 )
                        
             )
-
+            '''
             # Visualize generated images.
             if cur_tick % image_snapshot_ticks == 0 or cur_nimg >= total_kimg * 1000:
                 snapshot_fake_images = G.predict_on_batch(snapshot_fake_latents)
@@ -336,7 +339,7 @@ def train_gan(
                         os.path.join(result_subdir, 'fakes%06d.png' % (cur_nimg / 1000)), 
                         drange=drange_viz, 
                         grid_size=image_grid_size)
-
+            '''
             if cur_tick % network_snapshot_ticks == 0 or cur_nimg >= total_kimg * 1000:
                 save_GD(G,D,os.path.join(result_subdir, 'network-snapshot-%06d' % (cur_nimg / 1000)),overwrite = False)
 
