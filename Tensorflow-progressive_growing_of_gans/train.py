@@ -9,6 +9,7 @@ from keras.layers import Input
 from keras import optimizers
 
 import dataset
+import config
 
 def load_GD(path,compile = False):
     G_path = os.path.join(path,'Generator.h5')
@@ -75,13 +76,35 @@ def random_latents(num_latents, G_input_shape):
 def random_labels(num_labels, training_set):
     return training_set.labels[np.random.randint(training_set.labels.shape[0], size=num_labels)]
 
-def wasserstein_loss(self, y_true, y_pred):
+def wasserstein_loss( y_true, y_pred):
         return K.mean(y_true * y_pred)
+
+def multiple_loss(y_true, y_pred):
+    return K.mean(y_true*y_pred)
+
+def mean_loss(y_true, y_pred):
+    return K.mean(y_pred)
+
+def load_dataset(dataset_spec=None, verbose=True, **spec_overrides):
+    if verbose: print('Loading dataset...')
+    if dataset_spec is None: dataset_spec = config.dataset
+    dataset_spec = dict(dataset_spec) # take a copy of the dict before modifying it
+    dataset_spec.update(spec_overrides)
+    dataset_spec['h5_path'] = os.path.join(config.data_dir, dataset_spec['h5_path'])
+    if 'label_path' in dataset_spec: dataset_spec['label_path'] = os.path.join(config.data_dir, dataset_spec['label_path'])
+    training_set = dataset.Dataset(**dataset_spec)
+    if verbose: print('Dataset shape =', np.int32(training_set.shape).tolist())
+    drange_orig = training_set.get_dynamic_range()
+    if verbose: print('Dynamic range =', drange_orig)
+    return training_set, drange_orig
+
 
 
 speed_factor = 10
 
-def train(D_training_repeats      = 1,
+def train_gan(
+    separate_funcs          = False,
+    D_training_repeats      = 1,
     G_learning_rate_max     = 0.0010,
     D_learning_rate_max     = 0.0010,
     G_smoothing             = 0.999,
@@ -119,13 +142,13 @@ def train(D_training_repeats      = 1,
         print("Resuming form"+resume_network)
         G,D = resume(os.path.join((config.result_dir,resume_network)))
     else:
-        G = Generator(num_channels=training_set.shape[-1], resolution=training_set.shape[2], label_size=training_set.labels.shape[1], **config.G)
-        D = Discriminator(num_channels=training_set.shape[-1], resolution=training_set.shape[2], label_size=training_set.labels.shape[1], **config.D)
+        G = Generator(num_channels=training_set.shape[1], resolution=training_set.shape[2], label_size=training_set.labels.shape[1], **config.G)
+        D = Discriminator(num_channels=training_set.shape[1], resolution=training_set.shape[2], label_size=training_set.labels.shape[1], **config.D)
         #missing Gs
-    pg_GAN = PG_GAN(G,D,config.G['latent_size'],0)    
+    G_train,D_train = PG_GAN(G,D,config.G['latent_size'],0,training_set.shape[2],training_set.shape[1])    
     print(G.summary())
     print(D.summary())
-    print(pg_GAN.summary())
+    #print(pg_GAN.summary())
 
 
     # Misc init.
@@ -142,14 +165,18 @@ def train(D_training_repeats      = 1,
     # GAN_opt = optimizers.Adam(lr = 0.0,beta_1 = 0.0,beta_2 = 0.99)
     
     if config.loss['type']=='wass':
-        G_loss_func = wasserstein_loss
-        D_loss_func = wasserstein_loss
+        G_loss = wasserstein_loss
+        D_loss = wasserstein_loss
+    elif config.loss['type']=='iwass':
+        G_loss = multiple_loss
+        D_loss = [mean_loss,'mse']
+        D_loss_weight = [1.0, config.loss['iwass_lambda']]
 
-    G.compile(G_opt,loss=G_loss_func)
+    G.compile(G_opt,loss=G_loss)
     D.trainable = False
-    pg_GAN.compile(G_opt,loss = D_loss_func)
+    G_train.compile(G_opt,loss = G_loss)
     D.trainable = True
-    D.compile(D_opt,loss=D_loss_func)
+    D_train.compile(D_opt,loss=D_loss,loss_weights=D_loss_weight)
 
     #real_image_input = Input((training_set.shape[2],training_set.shape[2],training_set.shape[-1]),name = "real_image_input")
     #real_label_input = Input((training_set.labels.shape[1]),name = "real_label_input")
@@ -188,11 +215,11 @@ def train(D_training_repeats      = 1,
         lrate_coef *= rampdown_linear(cur_nimg / 1000.0, total_kimg, rampdown_kimg)
         #G_lrate.set_value(np.float32(lrate_coef * G_learning_rate_max))
         K.set_value(G.optimizer.lr, np.float32(lrate_coef * G_learning_rate_max))
-        K.set_value(pg_GAN.optimizer.lr, np.float32(lrate_coef * G_learning_rate_max))
+        K.set_value(G_train.optimizer.lr, np.float32(lrate_coef * G_learning_rate_max))
         #D_lrate.set_value(np.float32(lrate_coef * D_learning_rate_max))
-        K.set_value(D.optimizer.lr, np.float32(lrate_coef * D_learning_rate_max))
-        if hasattr(G, 'cur_lod'): K.set_value(G.cur_lod,np.float32(cur_lod))
-        if hasattr(D, 'cur_lod'): K.set_value(D.cur_lod,np.float32(cur_lod))
+        K.set_value(D_train.optimizer.lr, np.float32(lrate_coef * D_learning_rate_max))
+        if hasattr(G_train, 'cur_lod'): K.set_value(G_train.cur_lod,np.float32(cur_lod))
+        if hasattr(D_train, 'cur_lod'): K.set_value(D_train.cur_lod,np.float32(cur_lod))
 
 
         new_min_lod, new_max_lod = int(np.floor(cur_lod)), int(np.ceil(cur_lod))
@@ -219,11 +246,15 @@ def train(D_training_repeats      = 1,
                  mb_reals = np.repeat(mb_reals, 2**min_lod, axis=1)
                  mb_reals = np.repeat(mb_reals, 2**min_lod, axis=2)
 
-            mb_fakes = G.predict_on_batch([mb_latents,mb_labels_rnd])
+            mb_fakes = G.predict_on_batch([mb_latents])
 
-            d_loss_real = D.train_on_batch(mb_reals, -np.ones((mb_reals.shape[0],1,1,1)))
-            d_loss_fake = D.train_on_batch(mb_fakes, np.ones((mb_fakes.shape[0],1,1,1)))
-            d_loss = 0.5 * np.add(d_loss_fake, d_loss_real)
+            epsilon = np.random.uniform(0, 1, size=(minibatch_size,1,1,1))
+            interpolation = epsilon*mb_reals + (1-epsilon)*mb_fakes
+
+            d_loss, d_diff, d_norm = D_train.train_on_batch([mb_fakes, mb_reals, interpolation], [np.ones((minibatch_size, 1,1,1)),np.ones((minibatch_size, 1))])
+            #d_loss_real = D.train_on_batch(mb_reals, -np.ones((mb_reals.shape[0],1,1,1)))
+            #d_loss_fake = D.train_on_batch(mb_fakes, np.ones((mb_fakes.shape[0],1,1,1)))
+            #d_loss = 0.5 * np.add(d_loss_fake, d_loss_real)
             cur_nimg += minibatch_size
 
         #train G
@@ -231,9 +262,9 @@ def train(D_training_repeats      = 1,
         mb_latents = random_latents(minibatch_size,G.input_shape)
         mb_labels_rnd = random_labels(minibatch_size,training_set)
 
-        g_loss = pg_GAN.train_on_batch([mb_latents], -np.ones((mb_latents.shape[0],1,1,1)))
+        g_loss = G_train.train_on_batch([mb_latents], -np.ones((mb_latents.shape[0],1,1,1)))
 
-        print ("%d [D loss: %f] [G loss: %f]" % (cur_nimg, 1 - d_loss, 1 - g_loss))
+        print ("%d [D loss: %f] [G loss: %f]" % (cur_nimg, d_loss,g_loss))
         #print(cur_nimg)
         #print(g_loss)
         #print(d_loss)
@@ -269,3 +300,12 @@ def train(D_training_repeats      = 1,
     save_GD(G,D,os.path.join(result_subdir, 'network-final'))
     training_set.close()
     print('Done.')
+
+if __name__ == '__main__':
+    #指定随机种子
+    np.random.seed(config.random_seed)
+    func_params = config.train
+    #config.train 为学习率等参数的设置字典
+    func_name = func_params['func']
+    del func_params['func']
+    globals()[func_name](**func_params)

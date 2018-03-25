@@ -176,7 +176,7 @@ class Dataset:
 class WorkerThread(threading.Thread):
     def __init__(self, dataset, queue, order, start_pos):
         threading.Thread.__init__(self)
-        print("此处使用了dataset")
+        #print("此处使用了dataset")
         self.dataset = dataset
         self.queue = queue
         self.order = order

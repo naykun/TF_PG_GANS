@@ -238,7 +238,7 @@ def Discriminator(
     model.gdrop_strength=gdrop_strength
     return model
 
-def PG_GAN(G,D,latent_size,label_size):
+def PG_GAN(G,D,latent_size,label_size,resolution,num_channels):
 
 
     print("Latent size:")
@@ -251,21 +251,22 @@ def PG_GAN(G,D,latent_size,label_size):
     inputs = [Input(shape=[latent_size], name='GANlatents')]
     if label_size:
         inputs += [Input(shape=[label_size], name='GANlabels')]
-    print(inputs)
-
-    print(G)
-    print(G.summary())
-    print(D)
-
-    #此处 fake 一句无法执行
     fake = G(inputs)
     GAN_out = D(fake)
 
 
-    model = Model(inputs = inputs,outputs = [GAN_out],name = "PG_GAN")
-    model.cur_lod = G.cur_lod
+    G_train = Model(inputs = inputs,outputs = [GAN_out],name = "PG_GAN")
+    G_train.cur_lod = G.cur_lod
     
-    return model
+    shape = D.get_input_shape_at(0)[1:]
+    gen_input, real_input, interpolation = Input(shape), Input(shape), Input(shape)
+    
+    sub = Subtract()([D(gen_input), D(real_input)])
+    norm = GradNorm()([D(interpolation), interpolation])
+    D_train = Model([gen_input, real_input, interpolation], [sub, norm]) 
+    D_train.cur_lod = D.cur_lod
+
+    return G_train,D_train
 
 
 if __name__ == '__main__':
