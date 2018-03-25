@@ -154,11 +154,11 @@ def train_gan(
         D = Discriminator(num_channels=training_set.shape[1], resolution=training_set.shape[2], label_size=training_set.labels.shape[1], **config.D)
         #missing Gs
     
-    print("Debug"*20)
+    #print("Debug"*20)
 
     pg_GAN = PG_GAN(G,D,config.G['latent_size'],0)    
     
-    print("Debug"*20)
+    #print("Debug"*20)
 
     print(G.summary())
     print(D.summary())
@@ -295,8 +295,19 @@ def train_gan(
             tick_train_out = []
 
             # Print progress.
-            print ('tick %-5d kimg %-8.1f lod %-5.2f minibatch %-4d time %-12s sec/tick %-9.1f sec/kimg %-6.1f Dgdrop %-8.4f Gloss %-8.4f Dloss %-8.4f Dreal %-8.4f Dfake %-8.4f' % (
-                (cur_tick, cur_nimg / 1000.0, cur_lod, minibatch_size, format_time(cur_time - train_start_time), tick_time, tick_time / tick_kimg, gdrop_strength) + tick_train_avg))
+            print (
+
+                '''tick %-5d kimg %-8.1f lod %-5.2f minibatch %-4d time %-12s sec/tick %-9.1f sec/kimg %-6.1f Dgdrop %-8.4f''' % 
+                (
+
+                    cur_tick, (cur_nimg / 1000.0), cur_lod, minibatch_size, 
+                    format_time(cur_time - train_start_time), tick_time, 
+                    tick_time / tick_kimg, 
+                    gdrop_strength
+                    #tick_train_avg
+                )
+                       
+            )
 
             # Visualize generated images.
             if cur_tick % image_snapshot_ticks == 0 or cur_nimg >= total_kimg * 1000:

@@ -1,4 +1,4 @@
-data_dir = '/data/yyh/Theano_PG_GANs_Clean/datasets/'
+data_dir = '/Users/mac/Desktop/Theano_PG_GANs_Clean/datasets/'
 result_dir = 'results'
 
 random_seed = 1000
