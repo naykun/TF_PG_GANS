@@ -209,6 +209,19 @@ def train_gan(
     tick_train_out = []
     train_start_time = tick_start_time - resume_time
 
+    #add to make output images
+
+    if image_grid_type == 'default':
+        if image_grid_size is None:
+            w, h = G.output_shape[3], G.output_shape[2]
+            image_grid_size = np.clip(1920 / w, 3, 16), np.clip(1080 / h, 2, 16)
+        example_real_images, snapshot_fake_labels = training_set.get_random_minibatch(np.prod(image_grid_size), labels=True)
+        snapshot_fake_latents = random_latents(np.prod(image_grid_size), G.input_shape)
+    else:
+        raise ValueError('Invalid image_grid_type', image_grid_type)
+
+
+    #add to make output images
 
     while cur_nimg < total_kimg * 1000:
         
@@ -318,7 +331,11 @@ def train_gan(
             # Visualize generated images.
             if cur_tick % image_snapshot_ticks == 0 or cur_nimg >= total_kimg * 1000:
                 snapshot_fake_images = G.predict_on_batch(snapshot_fake_latents)
-                misc.save_image_grid(snapshot_fake_images, os.path.join(result_subdir, 'fakes%06d.png' % (cur_nimg / 1000)), drange=drange_viz, grid_size=image_grid_size)
+                misc.save_image_grid(
+                        snapshot_fake_images, 
+                        os.path.join(result_subdir, 'fakes%06d.png' % (cur_nimg / 1000)), 
+                        drange=drange_viz, 
+                        grid_size=image_grid_size)
 
             if cur_tick % network_snapshot_ticks == 0 or cur_nimg >= total_kimg * 1000:
                 save_GD(G,D,os.path.join(result_subdir, 'network-snapshot-%06d' % (cur_nimg / 1000)),overwrite = False)
