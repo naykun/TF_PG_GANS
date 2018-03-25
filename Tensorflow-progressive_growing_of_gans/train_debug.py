@@ -135,7 +135,7 @@ def train_gan(
     gdrop_exp               = 2.0,
     drange_net              = [-1,1],
     drange_viz              = [-1,1],
-    image_grid_size         = 5,
+    image_grid_size         = None,
     tick_kimg_default       = 50/speed_factor,
     tick_kimg_overrides     = {32:20, 64:10, 128:10, 256:5, 512:2, 1024:1},
     image_snapshot_ticks    = 1,
