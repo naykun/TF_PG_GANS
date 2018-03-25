@@ -1,9 +1,0 @@
-D = {'fmap_decay': 1.0, 'use_gdrop': False, 'mbstat_avg': 'all', 'use_wscale': True, 'fmap_max': 512, 'fmap_base': 2048, 'use_layernorm': False, 'mbdisc_kernels': None, 'mbstat_func': 'Tstdeps', 'func': 'D_paper'}
-G = {'use_leakyrelu': True, 'fmap_decay': 1.0, 'tanh_at_end': None, 'normalize_latents': True, 'fmap_max': 512, 'func': 'G_paper', 'fmap_base': 2048, 'use_pixelnorm': True, 'use_batchnorm': False, 'use_wscale': True, 'latent_size': 512}
-data_dir = datasets
-dataset = {'resolution': 128, 'h5_path': 'celeba-128x128_channel_last.h5', 'mirror_augment': True, 'max_labels': 0}
-loss = {'iwass_lambda': 10.0, 'iwass_target': 1.0, 'cond_type': 'acgan', 'cond_weight': 1.0, 'type': 'iwass', 'iwass_epsilon': 0.001}
-random_seed = 1000
-result_dir = results
-run_desc = celeba
-train = {'total_kimg': 10000, 'D_learning_rate_max': 0.001, 'adam_beta2': 0.99, 'rampup_kimg': 0, 'rampdown_kimg': 0, 'lod_transition_kimg': 800, 'lod_training_kimg': 800, 'gdrop_coef': 0.0, 'separate_funcs': True, 'minibatch_default': 16, 'lod_initial_resolution': 4, 'G_smoothing': 0.999, 'minibatch_overrides': {}, 'adam_epsilon': 1e-08, 'G_learning_rate_max': 0.001, 'adam_beta1': 0.0, 'D_training_repeats': 1}
