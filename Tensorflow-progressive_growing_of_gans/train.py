@@ -11,6 +11,9 @@ from keras import optimizers
 import dataset
 import config
 
+
+import misc
+
 def load_GD(path,compile = False):
     G_path = os.path.join(path,'Generator.h5')
     D_path = os.path.join(path,'Discriminator.h5')
@@ -100,7 +103,7 @@ def load_dataset(dataset_spec=None, verbose=True, **spec_overrides):
 
 
 
-speed_factor = 10
+speed_factor = 40
 
 def train_gan(
     separate_funcs          = False,
@@ -126,7 +129,7 @@ def train_gan(
     gdrop_exp               = 2.0,
     drange_net              = [-1,1],
     drange_viz              = [-1,1],
-    image_grid_size         = 5,
+    image_grid_size         = None,
     tick_kimg_default       = 50/speed_factor,
     tick_kimg_overrides     = {32:20, 64:10, 128:10, 256:5, 512:2, 1024:1},
     image_snapshot_ticks    = 4,
@@ -159,7 +162,7 @@ def train_gan(
     min_lod, max_lod = -1.0, -2.0
     fake_score_avg = 0.0
 
-    result_subdir = create_result_subdir(config.result_dir, config.run_desc)
+   
 
     G_opt = optimizers.Adam(lr = 0.0,beta_1=adam_beta1,beta_2=adam_beta2,epsilon = adam_epsilon)
     D_opt = optimizers.Adam(lr = 0.0,beta_1 = adam_beta1,beta_2 = adam_beta2,epsilon = adam_epsilon)
@@ -179,12 +182,6 @@ def train_gan(
     D.trainable = True
     D_train.compile(D_opt,loss=D_loss,loss_weights=D_loss_weight)
 
-    #real_image_input = Input((training_set.shape[2],training_set.shape[2],training_set.shape[-1]),name = "real_image_input")
-    #real_label_input = Input((training_set.labels.shape[1]),name = "real_label_input")
-    #fake_latent_input = Input((config.G['latent_size']),name = "fake_latent_input")
-    #fake_labels_input = Input((training_set.labels.shape[1]),name = "fake_label_input")
-
-    snapshot_fake_latents = random_latents(np.prod(image_grid_size), G.input_shape)
 
     cur_nimg = int(resume_kimg * 1000)
     cur_tick = 0
@@ -194,6 +191,45 @@ def train_gan(
     train_start_time = tick_start_time - resume_time
 
 
+
+
+    #real_image_input = Input((training_set.shape[2],training_set.shape[2],training_set.shape[-1]),name = "real_image_input")
+    #real_label_input = Input((training_set.labels.shape[1]),name = "real_label_input")
+    #fake_latent_input = Input((config.G['latent_size']),name = "fake_latent_input")
+    #fake_labels_input = Input((training_set.labels.shape[1]),name = "fake_label_input")
+
+    if image_grid_type == 'default':
+        if image_grid_size is None:
+            w, h = G.output_shape[1], G.output_shape[2]
+            print("w:%d,h:%d"%(w,h))
+            image_grid_size = np.clip(int(1920 // w), 3, 16).astype('int'), np.clip(1080 / h, 2, 16).astype('int')
+        
+        print("image_grid_size:",image_grid_size)
+
+        example_real_images, snapshot_fake_labels = training_set.get_random_minibatch_channel_last(np.prod(image_grid_size), labels=True)
+        snapshot_fake_latents = random_latents(np.prod(image_grid_size), G.input_shape)
+    else:
+        raise ValueError('Invalid image_grid_type', image_grid_type)
+
+    #print("image_grid_size:",image_grid_size)
+
+    result_subdir = misc.create_result_subdir(config.result_dir, config.run_desc)
+    #snapshot_fake_images = gen_fn(snapshot_fake_latents, snapshot_fake_labels)
+    #result_subdir = misc.create_result_subdir(config.result_dir, config.run_desc)
+    
+    #('example_real_images.shape:', (120, 3, 128, 128))
+
+    #print("example_real_images:",example_real_images)
+    print("example_real_images.shape:",example_real_images.shape)
+    misc.save_image_grid(example_real_images, os.path.join(result_subdir, 'reals.png'), drange=drange_orig, grid_size=image_grid_size)
+    #misc.save_image_grid(snapshot_fake_images, os.path.join(result_subdir, 'fakes%06d.png' % 0), drange=drange_viz, grid_size=image_grid_size)
+    
+    snapshot_fake_latents = random_latents(np.prod(image_grid_size), G.input_shape)
+    snapshot_fake_images = G.predict_on_batch(snapshot_fake_latents)
+    misc.save_image_grid(snapshot_fake_images, os.path.join(result_subdir, 'fakes%06d.png' % (cur_nimg / 1000)), drange=drange_viz, grid_size=image_grid_size)
+    
+    
+   
     while cur_nimg < total_kimg * 1000:
         
         # Calculate current LOD.
@@ -285,14 +321,16 @@ def train_gan(
             tick_train_avg = tuple(np.mean(np.concatenate([np.asarray(v).flatten() for v in vals])) for vals in zip(*tick_train_out))
             tick_train_out = []
 
+            '''
             # Print progress.
             print ('tick %-5d kimg %-8.1f lod %-5.2f minibatch %-4d time %-12s sec/tick %-9.1f sec/kimg %-6.1f Dgdrop %-8.4f Gloss %-8.4f Dloss %-8.4f Dreal %-8.4f Dfake %-8.4f' % (
                 (cur_tick, cur_nimg / 1000.0, cur_lod, minibatch_size, format_time(cur_time - train_start_time), tick_time, tick_time / tick_kimg, gdrop_strength) + tick_train_avg))
+            '''
 
             # Visualize generated images.
             if cur_tick % image_snapshot_ticks == 0 or cur_nimg >= total_kimg * 1000:
                 snapshot_fake_images = G.predict_on_batch(snapshot_fake_latents)
-                #misc.save_image_grid(snapshot_fake_images, os.path.join(result_subdir, 'fakes%06d.png' % (cur_nimg / 1000)), drange=drange_viz, grid_size=image_grid_size)
+                misc.save_image_grid(snapshot_fake_images, os.path.join(result_subdir, 'fakes%06d.png' % (cur_nimg / 1000)), drange=drange_viz, grid_size=image_grid_size)
 
             if cur_tick % network_snapshot_ticks == 0 or cur_nimg >= total_kimg * 1000:
                 save_GD(G,D,os.path.join(result_subdir, 'network-snapshot-%06d' % (cur_nimg / 1000)),overwrite = False)

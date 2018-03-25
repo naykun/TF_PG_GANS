@@ -138,14 +138,14 @@ class Dataset:
         # Apply mirror augment.
         if self.mirror_augment:
             mask = np.random.rand(data.shape[0]) < 0.5
-            data[mask] = data[mask, :, :, ::-1]
+            data[mask] = data[mask,  :, ::-1, :]
 
        
         
         # Apply fractional LOD.
         if lod != lod_int:
             n, c, h, w = data.shape
-            t = data.reshape(n, c, h/2, 2, w/2, 2).mean((3, 5)).repeat(2, 2).repeat(2, 3)
+            t = data.reshape(n,  h/2, 2, w/2, 2, c).mean((3, 5)).repeat(2, 2).repeat(2, 3)
             
             data = (data + (t - data) * (lod - lod_int)).astype(self.dtype)
         if not shrink_based_on_lod and lod_int != 0:
@@ -200,20 +200,22 @@ class Dataset:
         self.cur_pos = (self.cur_pos + minibatch_size) % self.order.size
 
         # Apply mirror augment.
+
+        #change to channal last 
         if self.mirror_augment:
             mask = np.random.rand(data.shape[0]) < 0.5
-            data[mask] = data[mask, :, :, ::-1]
+            data[mask] = data[mask,  :, ::-1,:]
 
-       
-        
+
         # Apply fractional LOD.
+        #change to channel last
         if lod != lod_int:
-            n, c, h, w = data.shape
-            t = data.reshape(n, c, h/2, 2, w/2, 2).mean((3, 5)).repeat(2, 2).repeat(2, 3)
+            n, h, w, c = data.shape
+            t = data.reshape(n,  h/2, 2, w/2, 2, c ).mean((2, 4)).repeat(2, 1).repeat(2, 2)
             
             data = (data + (t - data) * (lod - lod_int)).astype(self.dtype)
         if not shrink_based_on_lod and lod_int != 0:
-            data = data.repeat(2 ** lod_int, 2).repeat(2 ** lod_int, 3)
+            data = data.repeat(2 ** lod_int, 1).repeat(2 ** lod_int, 2)
 
         # Look up labels.
 

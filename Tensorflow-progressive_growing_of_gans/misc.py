@@ -39,7 +39,7 @@ def adjust_dynamic_range(data, drange_in, drange_out):
 
 def create_image_grid(images, grid_size=None):
     assert images.ndim == 3 or images.ndim == 4
-    num, img_w, img_h = images.shape[0], images.shape[-1], images.shape[-2]
+    num, img_w, img_h = images.shape[0], images.shape[-2], images.shape[-3]
 
     if grid_size is not None:
         grid_w, grid_h = tuple(grid_size)
@@ -47,11 +47,16 @@ def create_image_grid(images, grid_size=None):
         grid_w = max(int(np.ceil(np.sqrt(num))), 1)
         grid_h = max((num - 1) / grid_w + 1, 1)
 
-    grid = np.zeros(list(images.shape[1:-2]) + [grid_h * img_h, grid_w * img_w], dtype=images.dtype)
+    #print("images.shape[1:-2]:",(images.shape[-1],))
+
+    grid = np.zeros( [grid_h * img_h, grid_w * img_w]+list((images.shape[-1],)), dtype=images.dtype)
     for idx in range(num):
         x = (idx % grid_w) * img_w
-        y = (idx / grid_w) * img_h
-        grid[..., y : y + img_h, x : x + img_w] = images[idx]
+        y = (idx // grid_w) * img_h
+        #print("x:",x)
+        #print("y:",y)
+        #print("grid.shape:",grid.shape)
+        grid[y : y + img_h, x : x + img_w,...] = images[idx]
     return grid
 
 def convert_to_pil_image(image, drange=[0,1]):
@@ -60,7 +65,9 @@ def convert_to_pil_image(image, drange=[0,1]):
         if image.shape[0] == 1:
             image = image[0] # grayscale CHW => HW
         else:
-            image = image.transpose(1, 2, 0) # CHW -> HWC
+            pass
+            #image = image.transpose(1, 2, 0) # CHW -> HWC
+
 
     image = adjust_dynamic_range(image, drange, [0,255])
     image = np.round(image).clip(0, 255).astype(np.uint8)
