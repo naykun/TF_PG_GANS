@@ -137,15 +137,16 @@ def train_gan(
     resume_time             = 0.0):
 
     training_set, drange_orig = load_dataset()
+    #print("training_set.shape:",training_set.shape)
 
     if resume_network:
         print("Resuming form"+resume_network)
         G,D = resume(os.path.join((config.result_dir,resume_network)))
     else:
-        G = Generator(num_channels=training_set.shape[1], resolution=training_set.shape[2], label_size=training_set.labels.shape[1], **config.G)
-        D = Discriminator(num_channels=training_set.shape[1], resolution=training_set.shape[2], label_size=training_set.labels.shape[1], **config.D)
+        G = Generator(num_channels=training_set.shape[3], resolution=training_set.shape[1], label_size=training_set.labels.shape[1], **config.G)
+        D = Discriminator(num_channels=training_set.shape[3], resolution=training_set.shape[1], label_size=training_set.labels.shape[1], **config.D)
         #missing Gs
-    G_train,D_train = PG_GAN(G,D,config.G['latent_size'],0,training_set.shape[2],training_set.shape[1])    
+    G_train,D_train = PG_GAN(G,D,config.G['latent_size'],0,training_set.shape[1],training_set.shape[3])    
     print(G.summary())
     print(D.summary())
     #print(pg_GAN.summary())
@@ -239,7 +240,7 @@ def train_gan(
         # train D
         d_loss = None
         for idx in range(D_training_repeats):
-            mb_reals, mb_labels = training_set.get_random_minibatch(minibatch_size, lod=cur_lod, shrink_based_on_lod=True, labels=True)
+            mb_reals, mb_labels = training_set.get_random_minibatch_channel_last(minibatch_size, lod=cur_lod, shrink_based_on_lod=True, labels=True)
             mb_latents = random_latents(minibatch_size,G.input_shape)
             mb_labels_rnd = random_labels(minibatch_size,training_set)
             if min_lod > 0: # compensate for shrink_based_on_lod

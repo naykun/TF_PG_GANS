@@ -32,7 +32,7 @@ class Dataset:
         self.h5_file = h5py.File(h5_path, 'r')
         self.resolution = resolution
         if self.resolution is None:
-            self.resolution = max(value.shape[2] for key, value in self.h5_file.items() if key.startswith('data'))
+            self.resolution = max(value.shape[1] for key, value in self.h5_file.items() if key.startswith('data'))
 
         # Initialize LODs.
         self.resolution_log2 = int(np.floor(np.log2(self.resolution)))
@@ -48,8 +48,11 @@ class Dataset:
 
         if max_images is not None:
             self.shape = (min(self.shape[0], max_images),) + self.shape[1:]
+
+        #change for channel last
         self.dtype = self.h5_lods[0].dtype
-        self.lod_shapes = [(self.shape[0], self.shape[1], r, r) for r in self.lod_resolutions]
+        self.lod_shapes = [(self.shape[0],  r, r, self.shape[3]) for r in self.lod_resolutions]
+        
         assert min(self.shape) > 0
         assert all(lod.shape[1:] == shape[1:] for lod, shape in zip(self.h5_lods, self.lod_shapes))
         assert all(lod.dtype == self.dtype for lod in self.h5_lods)
@@ -158,6 +161,65 @@ class Dataset:
         #print("变换后shape：",data.shape)
 
         
+        if labels:
+            return data, self.labels[orig_indices]
+        else:
+            return data
+
+    def get_random_minibatch_channel_last(self, minibatch_size, lod=0, shrink_based_on_lod=False, labels=False):
+        assert minibatch_size >= 1
+        lod = np.clip(float(lod), 0.0, float(self.resolution_log2))
+        lod_int = int(np.floor(lod))
+
+        # LOD changed => kill previous worker thread.
+        if lod_int != self.cur_lod:
+            self.kill_worker_thread()
+            self.cur_lod = lod_int
+
+        # No worker thread => launch one.
+        if self.thread is None:
+            while not self.queue.empty():
+                self.queue.get()
+            h5_lod = self.h5_lods[lod_int]
+            total_gb = np.prod(np.float64(self.lod_shapes[lod_int])) * np.dtype(self.dtype).itemsize / np.exp2(30)
+            if total_gb <= self.max_gb_to_load_right_away:
+                h5_lod = h5_lod[:self.shape[0]] # load all data right away
+            self.thread = WorkerThread(h5_lod, self.queue, self.order, self.cur_pos)
+            self.thread.daemon = True
+            self.thread.start()
+
+        # Grab data from worker thread.
+        data = np.stack([self.queue.get() for i in range(minibatch_size)])
+
+        # Reshuffle indices.
+        ivec = (np.arange(minibatch_size) + self.cur_pos) % self.order.size
+        jvec = (ivec - np.random.randint(self.reshuffle_window, size=minibatch_size)) % self.order.size
+        orig_indices = self.order[ivec]
+        for i, j in zip(ivec, jvec):
+            self.order[i], self.order[j] = self.order[j], self.order[i]
+        self.cur_pos = (self.cur_pos + minibatch_size) % self.order.size
+
+        # Apply mirror augment.
+        if self.mirror_augment:
+            mask = np.random.rand(data.shape[0]) < 0.5
+            data[mask] = data[mask, :, :, ::-1]
+
+       
+        
+        # Apply fractional LOD.
+        if lod != lod_int:
+            n, c, h, w = data.shape
+            t = data.reshape(n, c, h/2, 2, w/2, 2).mean((3, 5)).repeat(2, 2).repeat(2, 3)
+            
+            data = (data + (t - data) * (lod - lod_int)).astype(self.dtype)
+        if not shrink_based_on_lod and lod_int != 0:
+            data = data.repeat(2 ** lod_int, 2).repeat(2 ** lod_int, 3)
+
+        # Look up labels.
+
+        #print("****************************************")
+        #print("minibach.shape：",data.shape)
+       
         if labels:
             return data, self.labels[orig_indices]
         else:

@@ -1,5 +1,6 @@
-data_dir = '/Users/mac/Desktop/Theano_PG_GANs_Clean/datasets/'
-data_dir = '/data/yyh/Theano_PG_GANs_Clean/datasets/'
+#data_dir = '/Users/mac/Desktop/Theano_PG_GANs_Clean/datasets/'
+#data_dir = '/data/yyh/Theano_PG_GANs_Clean/datasets/'
+data_dir = 'datasets'
 result_dir = 'results'
 
 random_seed = 1000
@@ -64,8 +65,9 @@ loss = dict(                                # Loss function:
 
 if 1:
     run_desc = 'celeba'
-    #dataset = dict(h5_path='celeba-128x128.h5', resolution=128, max_labels=0, mirror_augment=True)
-    dataset = dict(h5_path='D:/微软实践项目/progressive_growing_of_gans/celeba-128x128.h5', resolution=128, max_labels=0, mirror_augment=True)
+
+    dataset = dict(h5_path='celeba-128x128_channel_last.h5', resolution=128, max_labels=0, mirror_augment=True)
+
     train.update(lod_training_kimg=800, lod_transition_kimg=800, rampup_kimg=0, total_kimg=10000, minibatch_overrides={})
     G.update(fmap_base=2048)
     D.update(fmap_base=2048)
