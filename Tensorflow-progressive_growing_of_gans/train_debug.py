@@ -8,6 +8,11 @@ from keras.models import load_model,save_model
 from keras.layers import Input
 from keras import optimizers
 
+
+import misc
+misc.init_output_logging()
+
+
 import dataset
 import config
 
@@ -133,7 +138,7 @@ def train_gan(
     image_grid_size         = 5,
     tick_kimg_default       = 50/speed_factor,
     tick_kimg_overrides     = {32:20, 64:10, 128:10, 256:5, 512:2, 1024:1},
-    image_snapshot_ticks    = 4,
+    image_snapshot_ticks    = 1,
     network_snapshot_ticks  = 40,
     image_grid_type         = 'default',
     resume_network          = None,
@@ -250,6 +255,7 @@ def train_gan(
         #    if min_lod > 0: # compensate for shrink_based_on_lod
         #        real_images_expr = T.extra_ops.repeat(real_images_expr, 2**min_lod, axis=2)
         #        real_images_expr = T.extra_ops.repeat(real_images_expr, 2**min_lod, axis=3)
+        
         # train D
         d_loss = None
         for idx in range(D_training_repeats):
