@@ -26,6 +26,7 @@
   <ItemGroup>
     <Compile Include="dataset.py" />
     <Compile Include="h5tool3.py" />
+    <Compile Include="h5tool3_channel_last.py" />
     <Compile Include="layers.py">
       <SubType>Code</SubType>
     </Compile>
