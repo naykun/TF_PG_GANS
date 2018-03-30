@@ -6,11 +6,11 @@ from keras.layers.merge import _Merge
 from keras.layers import *
 from keras import activations
 from keras import initializers
-from keras.models import Model
+from keras.models import Model,Sequential
 import numpy as np
 from layers import *
 
-linear, linear_init = activations.linear,       initializers.VarianceScaling(scale=1.0, mode='fan_in', distribution='normal')
+linear, linear_init = activations.linear,       initializers.he_normal()
 relu,   relu_init = activations.relu,         initializers.he_normal()
 lrelu,  lrelu_init = lambda x: K.relu(x, 0.2),  initializers.he_normal()
 
@@ -33,12 +33,19 @@ def G_convblock(
         pad = filter_size - 1
     Pad = ZeroPadding2D(pad, name=name + 'Pad')
     net = Pad(net)
-    Conv = Conv2D(num_filter, filter_size, padding='valid',
+    if use_wscale:
+        Conv = Conv2D(num_filter, filter_size, padding='valid',
+                  activation=None, kernel_initializer=init,use_bias = False, name=name)
+    else:
+        Conv = Conv2D(num_filter, filter_size, padding='valid',
                   activation=actv, kernel_initializer=init, name=name)
     net = Conv(net)
     if use_wscale:
         Wslayer = WScaleLayer(Conv, name=name + 'WS')
         net = Wslayer(net)
+        Addbias = AddBiasLayer()
+        net = Addbias(net)
+        net = Activation(actv)(net)
     if use_batchnorm:
         Bslayer = BatchNormalization(name=name + 'BN')
         net = Bslayer(net)
@@ -55,12 +62,19 @@ def NINblock(
     init,
     use_wscale=True,
     name=None):
-    NINlayer = Conv2D(num_channels, 1, padding='same',
-                      activation=actv, kernel_initializer=init, name=name + 'NIN')
-    net = NINlayer(net)
     if use_wscale:
+
+        NINlayer = Conv2D(num_channels, 1, padding='same',
+                      activation=None,use_bias = False, kernel_initializer=init, name=name + 'NIN')
+        net = NINlayer(net)
         Wslayer = WScaleLayer(NINlayer, name=name + 'NINWS')
         net = Wslayer(net)
+        net = AddBiasLayer()(net)
+        net = Activation(actv)(net)
+    else:
+        NINlayer = Conv2D(num_channels, 1, padding='same',
+                      activation=actv,kernel_initializer=init, name=name + 'NIN')
+        net = NINlayer(net)
     return net
 
 
@@ -160,12 +174,19 @@ def Discriminator(
             actv,
             init,
             name=None):
-        layer = Conv2D(num_channels, 1, activation=actv,
-                       kernel_initializer=init, padding='same', name=name + 'NIN')
-        net = layer(net)
         if use_wscale:
-            layer = WScaleLayer(layer, name=name + 'NINWS')
-            net = layer(net)
+
+            NINlayer = Conv2D(num_channels, 1, padding='same',
+                          activation=None,use_bias = False, kernel_initializer=init, name=name + 'NIN')
+            net = NINlayer(net)
+            Wslayer = WScaleLayer(NINlayer, name=name + 'NINWS')
+            net = Wslayer(net)
+            net = AddBiasLayer()(net)
+            net = Activation(actv)(net)
+        else:
+            NINlayer = Conv2D(num_channels, 1, padding='same',
+                          activation=actv,kernel_initializer=init, name=name + 'NIN')
+            net = NINlayer(net)
         return net
 
     def Downscale2DLayer(incoming, scale_factor, **kwargs):
@@ -183,12 +204,19 @@ def Discriminator(
             pad = filter_size - 1
         Pad = ZeroPadding2D(pad, name=name + 'Pad')
         net = Pad(net)
-        Conv = Conv2D(num_filter, filter_size, padding='valid',
-                  activation=actv, kernel_initializer=init, name=name)
+        if use_wscale:
+            Conv = Conv2D(num_filter, filter_size, padding='valid',
+                      activation=None, kernel_initializer=init,use_bias = False, name=name)
+        else:
+            Conv = Conv2D(num_filter, filter_size, padding='valid',
+                      activation=actv, kernel_initializer=init, name=name)
         net = Conv(net)
         if use_wscale:
             layer = WScaleLayer(Conv, name=name + 'ws')
             net = layer(net)
+            Addbias = AddBiasLayer()
+            net = Addbias(net)
+            net = Activation(actv)(net)
         if use_layernorm:
             layer = LayerNormLayer(layer, epsilon, name=name+'ln')
             net = layer(net)
@@ -220,10 +248,18 @@ def Discriminator(
         act,
         init,
         name=None):
-        layer = Dense(size, activation=act, kernel_initializer=init,name=name)
-        net = layer(net)
+        #layer = Dense(size, activation=act, kernel_initializer=init,name=name)
+        #net = layer(net)
         if use_wscale:
+            layer = Dense(size, activation=None,use_bias = False, kernel_initializer=init,name=name)
+            net = layer(net)
             layer = WScaleLayer(layer, name=name+'ws')
+            net = layer(net)
+            Addbias = AddBiasLayer()
+            net = Addbias(net)
+            net = Activation(act)(net)
+        else:
+            layer = Dense(size, activation=act, kernel_initializer=init,name=name)
             net = layer(net)
         return net
 
@@ -248,14 +284,17 @@ def PG_GAN(G,D,latent_size,label_size,resolution,num_channels):
     print("Label size:")
     print(label_size)
 
-    inputs = [Input(shape=[latent_size], name='GANlatents')]
-    if label_size:
-        inputs += [Input(shape=[label_size], name='GANlabels')]
-    fake = G(inputs)
-    GAN_out = D(fake)
+    #inputs = [Input(shape=[latent_size], name='GANlatents')]
+    #if label_size:
+    #    inputs += [Input(shape=[label_size], name='GANlabels')]
 
 
-    G_train = Model(inputs = inputs,outputs = [GAN_out],name = "PG_GAN")
+    #fake = G(inputs)
+    #GAN_out = D(fake)
+
+
+    #G_train = Model(inputs = inputs,outputs = [GAN_out],name = "PG_GAN")
+    G_train = Sequential([G, D])
     G_train.cur_lod = G.cur_lod
     
     shape = D.get_input_shape_at(0)[1:]

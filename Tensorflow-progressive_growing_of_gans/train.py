@@ -149,7 +149,9 @@ def train_gan(
         G = Generator(num_channels=training_set.shape[3], resolution=training_set.shape[1], label_size=training_set.labels.shape[1], **config.G)
         D = Discriminator(num_channels=training_set.shape[3], resolution=training_set.shape[1], label_size=training_set.labels.shape[1], **config.D)
         #missing Gs
-    G_train,D_train = PG_GAN(G,D,config.G['latent_size'],0,training_set.shape[1],training_set.shape[3])    
+    G_train,D_train = PG_GAN(G,D,config.G['latent_size'],0,training_set.shape[1],training_set.shape[3]) 
+    #G_tmp = Model(inputs=[G.get_input_at(0)],
+    #              outputs = [G.get_layer('G6bPN').output])   
     print(G.summary())
     print(D.summary())
     #print(pg_GAN.summary())
@@ -224,11 +226,14 @@ def train_gan(
     misc.save_image_grid(example_real_images, os.path.join(result_subdir, 'reals.png'), drange=drange_orig, grid_size=image_grid_size)
     #misc.save_image_grid(snapshot_fake_images, os.path.join(result_subdir, 'fakes%06d.png' % 0), drange=drange_viz, grid_size=image_grid_size)
     
+    #NINweight = G.get_layer('Glod0NIN').get_weights()[0]
+    #print("Glod0NIN weight:",NINweight) 
+
     snapshot_fake_latents = random_latents(np.prod(image_grid_size), G.input_shape)
     snapshot_fake_images = G.predict_on_batch(snapshot_fake_latents)
     misc.save_image_grid(snapshot_fake_images, os.path.join(result_subdir, 'fakes%06d.png' % (cur_nimg / 1000)), drange=drange_viz, grid_size=image_grid_size)
     
-    
+    nimg_h = 0
    
     while cur_nimg < total_kimg * 1000:
         
@@ -287,8 +292,11 @@ def train_gan(
 
             epsilon = np.random.uniform(0, 1, size=(minibatch_size,1,1,1))
             interpolation = epsilon*mb_reals + (1-epsilon)*mb_fakes
-
+            mb_reals = misc.adjust_dynamic_range(mb_reals, drange_orig, drange_net)
             d_loss, d_diff, d_norm = D_train.train_on_batch([mb_fakes, mb_reals, interpolation], [np.ones((minibatch_size, 1,1,1)),np.ones((minibatch_size, 1))])
+            d_score_real = D.predict_on_batch(mb_reals)
+            d_score_fake = D.predict_on_batch(mb_fakes)
+            print("real score: %d fake score: %d"%(np.mean(d_score_real),np.mean(d_score_fake)))
             #d_loss_real = D.train_on_batch(mb_reals, -np.ones((mb_reals.shape[0],1,1,1)))
             #d_loss_fake = D.train_on_batch(mb_fakes, np.ones((mb_fakes.shape[0],1,1,1)))
             #d_loss = 0.5 * np.add(d_loss_fake, d_loss_real)
@@ -299,13 +307,31 @@ def train_gan(
         mb_latents = random_latents(minibatch_size,G.input_shape)
         mb_labels_rnd = random_labels(minibatch_size,training_set)
 
-        g_loss = G_train.train_on_batch([mb_latents], -np.ones((mb_latents.shape[0],1,1,1)))
+        #if cur_nimg//100 !=nimg_h:
+        #    snapshot_fake_images = G.predict_on_batch(snapshot_fake_latents)
+        #    print(np.mean(snapshot_fake_images,axis=-1))
+        #    G_lod = G_tmp.predict(snapshot_fake_latents)
+        #    print("G6bPN:",np.mean(G_lod,axis=-1))
+        #    misc.save_image_grid(snapshot_fake_images, os.path.join(result_subdir, 'fakes%06d_beforeGtrain.png' % (cur_nimg)), drange=drange_viz, grid_size=image_grid_size)
+
+        g_loss = G_train.train_on_batch([mb_latents], (-1)*np.ones((mb_latents.shape[0],1,1,1)))
 
         print ("%d [D loss: %f] [G loss: %f]" % (cur_nimg, d_loss,g_loss))
         #print(cur_nimg)
         #print(g_loss)
         #print(d_loss)
         # Fade in D noise if we're close to becoming unstable
+        #if cur_nimg//100 !=nimg_h:
+        #    nimg_h=cur_nimg//100
+        #    snapshot_fake_images = G.predict_on_batch(snapshot_fake_latents)
+        #    print(np.mean(snapshot_fake_images,axis=-1))
+        #    G_lod = G_tmp.predict(snapshot_fake_latents)
+        #    print("G6bPN:",np.mean(G_lod,axis=-1))
+        #    NINweight = G.get_layer('Glod0NIN').get_weights()[0]
+        #    print(NINweight) 
+        #    misc.save_image_grid(snapshot_fake_images, os.path.join(result_subdir, 'fakes%06d.png' % (cur_nimg)), drange=drange_viz, grid_size=image_grid_size)
+
+
         fake_score_cur = np.clip(np.mean(d_loss), 0.0, 1.0)
         fake_score_avg = fake_score_avg * gdrop_beta + fake_score_cur * (1.0 - gdrop_beta)
         gdrop_strength = gdrop_coef * (max(fake_score_avg - gdrop_lim, 0.0) ** gdrop_exp)

@@ -79,7 +79,7 @@ class PixelNormLayer(Layer):
     def __init__(self,**kwargs):
         super(PixelNormLayer,self).__init__(**kwargs)
     def call(self, inputs, **kwargs):
-        return inputs / K.sqrt(K.mean(inputs**2, axis=1, keepdims=True) + 1.0e-8)
+        return inputs / K.sqrt(K.mean(inputs**2, axis=-1, keepdims=True) + 1.0e-8)
     def compute_output_shape(self, input_shape):
         return input_shape
 
@@ -129,6 +129,7 @@ class MinibatchLayer(Layer):
         self.bias = self.add_weight(name = 'bias',shape = (self.num_kernels,),initializer='zeros')
         if self.b_arg == None:
             K.set_value(self.bias,K.constant(-1.0,shape = (self.num_kernels,)))
+        super(MinibatchLayer, self).build(input_shape)
     def call(self,input,**kargs):
         if K.ndim(input) > 2:
             # if the input has more than two dimensions, flatten it into a
@@ -172,20 +173,44 @@ class WScaleLayer(Layer):
         K.set_value(self.incoming.kernel,kernel/scale)
         self.scale=self.add_weight(name = 'scale',shape = scale.shape,trainable=False,initializer='zeros')
         K.set_value(self.scale,scale)
-        if  hasattr(self.incoming, 'bias') and self.incoming.bias is not None:
-            bias = K.get_value(self.incoming.bias)
-            self.bias=self.add_weight(name = 'bias',shape = bias.shape,initializer='zeros')
+        super(WScaleLayer, self).build(input_shape)
+        #if  hasattr(self.incoming, 'bias') and self.incoming.bias is not None:
+        #    bias = K.get_value(self.incoming.bias)
+        #    self.bias=self.add_weight(name = 'bias',shape = bias.shape,initializer='zeros')
             # del self.incoming.trainable_weights[self.incoming.bias]
             # self.incoming.bias = None
         
     def call(self, input, **kwargs):
         input = input * self.scale
-        if self.bias is not None:
-            pattern = ['x'] + ['x'] * (K.ndim(input) - 2)+[0]
-            input = input + K.expand_dims(K.expand_dims(K.expand_dims(self.bias,0),0),0)
+        #if self.bias is not None:
+        #    pattern = ['x'] + ['x'] * (K.ndim(input) - 2)+[0]
+        #    input = input + K.expand_dims(K.expand_dims(K.expand_dims(self.bias,0),0),0)
         return self.activation(input)
     def compute_output_shape(self, input_shape):
         return input_shape
+
+
+#----------------------------------------------------------------------------
+# Applies bias
+
+class AddBiasLayer(Layer):
+    def __init__(self,**kwargs):
+        super(AddBiasLayer,self).__init__(**kwargs)
+    def build(self, input_shape):
+        # Create a trainable weight variable for this layer.
+        self.bias = self.add_weight(name='bias', 
+                                      shape=(input_shape[-1],),
+                                      initializer='zeros',
+                                      trainable=True)
+        super(AddBiasLayer, self).build(input_shape)
+        
+    def call(self, input, **kwargs):
+        if self.bias is not None:
+            input = K.bias_add(input,self.bias)
+        return input
+    def compute_output_shape(self, input_shape):
+        return input_shape
+
 
 
 #----------------------------------------------------------------------------
@@ -314,6 +339,8 @@ class LayerNormLayer(Layer):
         if hasattr(self.incoming, 'activation') and self.incoming.activation is not None: # steal nonlinearity
             self.activation = self.incoming.activation
             self.incoming.activation = activations.get('linear')
+
+        super(LayerNormLayer, self).build(input_shape)
     def call(self, input, **kwargs):
         avg_axes = range(1, len(self.input_shape()))
         input = input - K.mean(input, axis=avg_axes, keepdims=True) # subtract mean
