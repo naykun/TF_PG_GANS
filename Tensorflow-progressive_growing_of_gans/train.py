@@ -5,6 +5,7 @@ import glob
 from model import *
 from config import *
 from keras.models import load_model,save_model
+#from keras.models import load_weights,save_weights
 from keras.layers import Input
 from keras import optimizers
 
@@ -14,18 +15,42 @@ import config
 
 import misc
 
-def load_GD(path,compile = False):
+def load_GD(path, compile = False):
     G_path = os.path.join(path,'Generator.h5')
     D_path = os.path.join(path,'Discriminator.h5')
-    G = load_model(G_path,compile = compile)
-    D = load_model(D_path,compile = compile)
+    G = load_model(G_path, compile = compile)
+    D = load_model(D_path, compile = compile)
     return G,D
 
 def save_GD(G,D,path,overwrite = False):
+    #try:
+        os.makedirs(path);
+        G_path = os.path.join(path,'Generator.h5')
+        D_path = os.path.join(path,'Discriminator.h5')
+        save_model(G,G_path,overwrite = overwrite)
+        save_model(D,D_path,overwrite = overwrite)
+        print("Save model to %s"%path)
+    #except:
+    #    print("Save model snapshot failed!")
+
+def load_GD_weights(G,D,path, by_name = True):
     G_path = os.path.join(path,'Generator.h5')
     D_path = os.path.join(path,'Discriminator.h5')
-    save_model(G,G_path,overwrite = overwrite)
-    sace_model(D,D_path,overwrite = overwrite)
+    G.load_weights(G_path, by_name = by_name)
+    D.load_weights(D_path, by_name = by_name)
+    return G,D
+
+def save_GD_weights(G,D,path):
+    try:
+        os.makedirs(path);
+        G_path = os.path.join(path,'Generator.h5')
+        D_path = os.path.join(path,'Discriminator.h5')
+        G.save_weights(G_path)
+        D.save_weights(D_path)
+        print("Save weights to %s:"%path)
+    except:
+        print("Save model snapshot failed!")
+
 
 def rampup(epoch, rampup_length):
     if epoch < rampup_length:
@@ -103,7 +128,7 @@ def load_dataset(dataset_spec=None, verbose=True, **spec_overrides):
 
 
 
-speed_factor = 40
+speed_factor = 20
 
 def train_gan(
     separate_funcs          = False,
@@ -132,19 +157,22 @@ def train_gan(
     image_grid_size         = None,
     tick_kimg_default       = 50/speed_factor,
     tick_kimg_overrides     = {32:20, 64:10, 128:10, 256:5, 512:2, 1024:1},
-    image_snapshot_ticks    = 4,
-    network_snapshot_ticks  = 40,
+    image_snapshot_ticks    = 1,
+    network_snapshot_ticks  = 4,
     image_grid_type         = 'default',
-    resume_network      = None,
-    resume_kimg             = 0.0,
+    resume_network          = '000-celeba/network-snapshot-000488',
+    #resume_network          = None,
+    resume_kimg             = 511.6,
     resume_time             = 0.0):
 
     training_set, drange_orig = load_dataset()
     #print("training_set.shape:",training_set.shape)
 
     if resume_network:
-        print("Resuming form"+resume_network)
-        G,D = resume(os.path.join((config.result_dir,resume_network)))
+        print("Resuming weight from:"+resume_network)
+        G = Generator(num_channels=training_set.shape[3], resolution=training_set.shape[1], label_size=training_set.labels.shape[1], **config.G)
+        D = Discriminator(num_channels=training_set.shape[3], resolution=training_set.shape[1], label_size=training_set.labels.shape[1], **config.D)
+        G,D = load_GD_weights(G,D,os.path.join(config.result_dir,resume_network),True)
     else:
         G = Generator(num_channels=training_set.shape[3], resolution=training_set.shape[1], label_size=training_set.labels.shape[1], **config.G)
         D = Discriminator(num_channels=training_set.shape[3], resolution=training_set.shape[1], label_size=training_set.labels.shape[1], **config.D)
@@ -359,7 +387,7 @@ def train_gan(
                 misc.save_image_grid(snapshot_fake_images, os.path.join(result_subdir, 'fakes%06d.png' % (cur_nimg / 1000)), drange=drange_viz, grid_size=image_grid_size)
 
             if cur_tick % network_snapshot_ticks == 0 or cur_nimg >= total_kimg * 1000:
-                save_GD(G,D,os.path.join(result_subdir, 'network-snapshot-%06d' % (cur_nimg / 1000)),overwrite = False)
+                save_GD_weights(G,D,os.path.join(result_subdir, 'network-snapshot-%06d' % (cur_nimg / 1000)))
 
 
     save_GD(G,D,os.path.join(result_subdir, 'network-final'))

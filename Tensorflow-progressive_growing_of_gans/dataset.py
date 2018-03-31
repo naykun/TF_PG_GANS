@@ -211,7 +211,7 @@ class Dataset:
         #change to channel last
         if lod != lod_int:
             n, h, w, c = data.shape
-            t = data.reshape(n,  h/2, 2, w/2, 2, c ).mean((2, 4)).repeat(2, 1).repeat(2, 2)
+            t = data.reshape(n,  int(h/2), 2, int(w/2), 2, c ).mean((2, 4)).repeat(2, 1).repeat(2, 2)
             
             data = (data + (t - data) * (lod - lod_int)).astype(self.dtype)
         if not shrink_based_on_lod and lod_int != 0:
